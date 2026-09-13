@@ -6,14 +6,12 @@ import { showLoading, hideLoading, showToast, escapeHTML } from './utils.js';
 import { getCategoryConfig, getAllCategories, isSearchMode } from './categoryConfig.js';
 import { storage } from './storage.js';
 import {
-    buildSearchQuery, buildSearchUrl, parseSearchResponse, coverUrl,
-    asList, joinValues, firstValue, isValidIdentifier
+    buildSearchQuery, buildSearchUrl, parseSearchResponse, coverUrl, fetchJSON, describeFetchError,
+    subjectTags, joinValues, firstValue, isValidIdentifier
 } from './archive.js';
 
 const RESULTS_PER_PAGE = 24;
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 1000;
-const REQUEST_TIMEOUT_MS = 15000;
+const EAGER_COVERS = 6;
 const RANDOM_POOL_PAGES = 10;
 const RANDOM_POOL_ROWS = 50;
 
@@ -29,58 +27,14 @@ const state = {
     results: [],
     filters: new Set(),
     loadingMore: false,
+    freshInFlight: false,
     requestId: 0,
     controller: null,
     lastParams: null,
     randomInFlight: false
 };
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function isRetryable(error) {
-    if (error.name === 'AbortError') return false;
-    if (error.status) return error.status === 429 || error.status >= 500;
-    return true; // network failure
-}
-
-/**
- * Fetch JSON with a timeout and retries for transient failures only.
- * @param {string} url
- * @param {AbortSignal} signal caller's abort signal (stale request cancellation)
- */
-export async function fetchJSON(url, { signal, attempts = MAX_ATTEMPTS } = {}) {
-    let lastError;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-        const controller = new AbortController();
-        const onAbort = () => controller.abort();
-        if (signal) {
-            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            signal.addEventListener('abort', onAbort, { once: true });
-        }
-        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-        try {
-            const response = await fetch(url, { signal: controller.signal });
-            if (!response.ok) {
-                const error = new Error(`Archive.org responded with HTTP ${response.status}`);
-                error.status = response.status;
-                throw error;
-            }
-            return await response.json();
-        } catch (error) {
-            if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            lastError = error;
-            if (!isRetryable(error) || attempt === attempts) throw error;
-            console.warn(`Fetch attempt ${attempt} failed:`, error.message);
-            await sleep(RETRY_DELAY_MS * attempt);
-        } finally {
-            clearTimeout(timer);
-            if (signal) signal.removeEventListener('abort', onAbort);
-        }
-    }
-    throw lastError;
-}
+const prefersReducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function readSearchParams() {
     const query = document.getElementById('searchQuery')?.value.trim() ?? '';
@@ -106,13 +60,21 @@ export async function searchAudiobooks(page = 1, { append = false } = {}) {
     const controller = new AbortController();
     state.controller = controller;
 
+    const resultsDiv = document.getElementById('results');
     if (!append) {
         state.lastParams = { ...params };
+        // Forget the previous result set now, so infinite scroll cannot keep
+        // paging through the old query while this one is in flight.
+        state.results = [];
+        state.total = 0;
+        state.page = 1;
+        state.freshInFlight = true;
         showLoading();
+        resultsDiv?.classList.add('is-loading');
         setLoadMoreState('idle');
     }
     state.loadingMore = append;
-    document.getElementById('results')?.setAttribute('aria-busy', 'true');
+    resultsDiv?.setAttribute('aria-busy', 'true');
 
     const lucene = buildSearchQuery({ category: params.category, config, query: params.query, yearFrom: params.yearFrom, yearTo: params.yearTo, filters: params.filters });
     document.title = `${config.title} - LibriVox Audiobooks`;
@@ -127,6 +89,7 @@ export async function searchAudiobooks(page = 1, { append = false } = {}) {
         state.results = append ? state.results.concat(docs) : docs;
 
         hideLoading();
+        resultsDiv?.classList.remove('is-loading');
         renderResults(docs, append);
         updateResultsInfo();
         if (isUnfilteredBrowse(params)) updateBookCount(numFound);
@@ -134,16 +97,18 @@ export async function searchAudiobooks(page = 1, { append = false } = {}) {
         if (error.name === 'AbortError' || requestId !== state.requestId) return;
         console.error('Search error:', error);
         hideLoading();
+        resultsDiv?.classList.remove('is-loading');
         if (append) {
             setLoadMoreState('error');
-            showToast('Could not load more audiobooks. Scroll or tap Retry to try again.', 'error');
+            showToast(`Could not load more audiobooks. ${describeFetchError(error)}`, 'error', 4000);
         } else {
             renderSearchError(error);
         }
     } finally {
         if (requestId === state.requestId) {
             state.loadingMore = false;
-            document.getElementById('results')?.setAttribute('aria-busy', 'false');
+            if (!append) state.freshInFlight = false;
+            resultsDiv?.setAttribute('aria-busy', 'false');
         }
     }
 }
@@ -168,14 +133,16 @@ function renderResults(docs, append) {
 
     const html = docs.map((book, index) => {
         const delay = append ? 0 : Math.min(index, 12) * 0.03;
-        return createBookCard(book, delay);
+        return createBookCard(book, { delay, eager: !append && index < EAGER_COVERS });
     }).join('');
 
     if (append) {
         resultsDiv.insertAdjacentHTML('beforeend', html);
     } else {
         resultsDiv.innerHTML = html;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (window.scrollY > resultsDiv.offsetTop) {
+            window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+        }
     }
 }
 
@@ -186,7 +153,7 @@ function bookYear(book) {
     return /^\d{4}/.test(date) ? date.slice(0, 4) : '';
 }
 
-export function createBookCard(book, delay = 0) {
+export function createBookCard(book, { delay = 0, eager = false } = {}) {
     const identifier = firstValue(book.identifier);
     if (!isValidIdentifier(identifier)) return '';
 
@@ -195,10 +162,7 @@ export function createBookCard(book, delay = 0) {
     const year = bookYear(book);
     const language = joinValues(book.language);
     const runtime = firstValue(book.runtime);
-    const genreTags = asList(book.subject)
-        .filter(s => s.length < 20)
-        .slice(0, 2)
-        .map(s => s.charAt(0).toUpperCase() + s.slice(1));
+    const genreTags = subjectTags(book.subject);
 
     const href = `player.html?id=${encodeURIComponent(identifier)}`;
     const label = `${title} by ${author}`;
@@ -210,7 +174,7 @@ export function createBookCard(book, delay = 0) {
                      alt=""
                      class="book-cover"
                      width="200" height="300"
-                     loading="lazy"
+                     loading="${eager ? 'eager' : 'lazy'}"${eager ? ' fetchpriority="high"' : ''}
                      decoding="async">
                 <div class="book-overlay" aria-hidden="true">
                     <div class="play-button">
@@ -248,16 +212,16 @@ function renderSearchError(error) {
 
     const message = error.message || 'Unknown error';
     const rejected = /rejected the query/i.test(message);
-    const network = !rejected && !error.status;
 
     let heading = 'Search Error';
-    let detail = 'An error occurred while searching. This may be temporary.';
+    let detail = describeFetchError(error);
     if (rejected) {
         heading = 'Search Not Understood';
         detail = 'Archive.org could not parse that search. Try simpler words, or wrap exact phrases in quotes.';
-    } else if (network) {
+    } else if (error.name === 'NetworkError') {
         heading = 'Connection Problem';
-        detail = 'Unable to reach Archive.org. Please check your connection.';
+    } else if (error.name === 'TimeoutError') {
+        heading = 'Archive.org Is Slow Right Now';
     }
 
     resultsDiv.innerHTML = `
@@ -268,8 +232,8 @@ function renderSearchError(error) {
                           d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
             </div>
-            <h3 class="text-xl font-bold text-red-400 mb-2">${heading}</h3>
-            <p class="text-gray-400 mb-6 max-w-md mx-auto">${detail}</p>
+            <h3 class="text-xl font-bold text-red-400 mb-2">${escapeHTML(heading)}</h3>
+            <p class="text-gray-400 mb-6 max-w-md mx-auto">${escapeHTML(detail)}</p>
             <button type="button" id="retrySearch"
                 class="px-6 py-3 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-semibold rounded-xl transition-all shadow-lg">
                 Try Again
@@ -323,7 +287,7 @@ function setLoadMoreState(mode) {
 }
 
 function loadNextPage() {
-    if (state.loadingMore || state.results.length === 0 || state.results.length >= state.total) return;
+    if (state.loadingMore || state.freshInFlight || state.results.length === 0 || state.results.length >= state.total) return;
     setLoadMoreState('loading');
     searchAudiobooks(state.page + 1, { append: true });
 }

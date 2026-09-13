@@ -10,6 +10,7 @@ export class Visualizer {
         this.bufferLength = 0;
         this.animationId = null;
         this.isInitialized = false;
+        this.isInitializing = false;
         this.isActive = false;
         this.gradient = null;
         this.width = 0;
@@ -22,42 +23,69 @@ export class Visualizer {
     }
 
     /**
-     * Route the audio element through an analyser. Safe to call once; later
-     * calls are ignored. Failures leave normal playback untouched.
+     * Route the audio element through an analyser.
+     *
+     * Once an element is connected to an AudioContext all of its sound flows
+     * through that context, and a context that the browser keeps suspended
+     * (no user gesture yet) would make playback silent. So the graph is only
+     * built when the context is actually running; otherwise this returns
+     * false and the caller tries again on the next gesture.
+     * @returns {Promise<boolean>} whether the visualizer is now active
      */
     async initialize(audioElement) {
-        if (this.isInitialized) return;
+        if (this.isInitialized) return true;
+        if (this.isInitializing) return false;
 
         this.canvas = document.getElementById('visualizerCanvas');
-        if (!this.canvas || !audioElement) return;
+        if (!this.canvas || !audioElement) return false;
 
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextCtor) {
             this.canvas.parentElement?.classList.add('hidden');
-            return;
+            return false;
         }
 
+        this.isInitializing = true;
+        let context = null;
         try {
+            context = new AudioContextCtor();
+            if (context.state !== 'running') {
+                await Promise.race([
+                    context.resume().catch(() => {}),
+                    new Promise(resolve => setTimeout(resolve, 300))
+                ]);
+            }
+            if (context.state !== 'running') {
+                await context.close().catch(() => {});
+                return false;
+            }
+
             this.canvasContext = this.canvas.getContext('2d');
-            this.audioContext = new AudioContextCtor();
-            this.analyser = this.audioContext.createAnalyser();
+            this.audioContext = context;
+            this.analyser = context.createAnalyser();
             this.analyser.fftSize = 256;
             this.analyser.smoothingTimeConstant = 0.85;
             this.bufferLength = this.analyser.frequencyBinCount;
             this.dataArray = new Uint8Array(this.bufferLength);
 
-            const source = this.audioContext.createMediaElementSource(audioElement);
+            const source = context.createMediaElementSource(audioElement);
             source.connect(this.analyser);
-            this.analyser.connect(this.audioContext.destination);
+            this.analyser.connect(context.destination);
 
             this.resizeCanvas();
             window.addEventListener('resize', this.handleResize);
             document.addEventListener('visibilitychange', this.handleVisibility);
             this.isInitialized = true;
             this.drawFrame();
+            if (!audioElement.paused) this.setActive(true);
+            return true;
         } catch (error) {
             console.warn('Visualizer unavailable:', error);
+            if (context && context !== this.audioContext) context.close().catch(() => {});
             this.destroy();
+            return false;
+        } finally {
+            this.isInitializing = false;
         }
     }
 
@@ -77,14 +105,10 @@ export class Visualizer {
         this.gradient.addColorStop(1, '#3b82f6');
     }
 
-    /** Browsers start AudioContexts suspended until a user gesture. */
-    async resume() {
+    /** Resume a context the browser suspended (e.g. after an interruption). Never blocks the caller. */
+    resume() {
         if (this.audioContext && this.audioContext.state === 'suspended') {
-            try {
-                await this.audioContext.resume();
-            } catch (error) {
-                console.warn('Could not resume audio context:', error);
-            }
+            this.audioContext.resume().catch(error => console.warn('Could not resume audio context:', error));
         }
     }
 

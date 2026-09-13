@@ -6,7 +6,7 @@ import { Visualizer } from './visualizer.js';
 import { updateAudiobookMeta, buildShareUrl } from './socialMeta.js';
 import {
     metadataUrl, downloadUrl, coverUrl, detailsUrl, parseMetadataResponse, selectAudioFiles,
-    joinValues, firstValue
+    fetchJSON, describeFetchError, joinValues, firstValue
 } from './archive.js';
 
 const METADATA_TIMEOUT_MS = 20000;
@@ -47,7 +47,7 @@ export function renderPlayerFatalError(message) {
             <h3 class="text-xl font-bold text-red-400 mb-2">Error Loading Player</h3>
             <p class="text-gray-300 mb-4">${escapeHTML(message)}</p>
             <div class="flex flex-wrap gap-4 justify-center">
-                <button type="button" id="reloadPlayer" class="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors">Try Again</button>
+                <button type="button" id="reloadPlayer" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors">Try Again</button>
                 <a href="index.html" class="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors inline-block">Return to Library</a>
             </div>
         </div>`;
@@ -73,6 +73,8 @@ export class Player {
         this.volume = 1;
         this.lastVolume = 1;
         this.consecutiveErrors = 0;
+        this.lastErrorIndex = -1;
+        this.finished = false;
         this.lastProgressSave = 0;
         this.lastHighlighted = -1;
 
@@ -109,9 +111,7 @@ export class Player {
             const archiveLink = document.getElementById('archive-link');
             if (archiveLink) archiveLink.href = detailsUrl(identifier);
 
-            this.updateBookInfo(metadata);
             updateAudiobookMeta({ identifier, title, author, narrator, language, description: firstValue(metadata.description), coverUrl: coverUrl(identifier) });
-            storage.updateRecentlyViewed({ identifier, title, author });
 
             const chapters = selectAudioFiles(files);
             if (chapters.length === 0) throw new Error('No playable audio files were found for this audiobook.');
@@ -125,18 +125,16 @@ export class Player {
             }));
             this.originalPlaylist = [...this.playlist];
 
+            this.updateBookInfo(metadata);
+            // Only books that actually produced a playlist are remembered.
+            storage.updateRecentlyViewed({ identifier, title, author });
+
             const prefs = storage.getPlayerPrefs();
             this.playbackRate = prefs.playbackRate;
             this.volume = prefs.volume;
             this.lastVolume = prefs.volume > 0 ? prefs.volume : 1;
 
             this.setupUI();
-
-            try {
-                await this.visualizer.initialize(this.audio);
-            } catch (e) {
-                console.warn('Visualizer initialization failed:', e);
-            }
             this.setupMediaSession();
 
             const { index, seekTo } = this.resolveStartPosition(startTrack);
@@ -147,21 +145,15 @@ export class Player {
             return true;
         } catch (error) {
             console.error('Error initializing player:', error);
-            renderPlayerFatalError(error.name === 'AbortError' ? 'Archive.org took too long to answer. Please try again.' : (error.message || 'Unable to load audiobook'));
+            const fetchFailure = ['TimeoutError', 'NetworkError', 'HttpError', 'ParseError'].includes(error.name);
+            renderPlayerFatalError(fetchFailure ? describeFetchError(error) : (error.message || 'Unable to load audiobook'));
             return false;
         }
     }
 
     async fetchMetadata(identifier) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
-        try {
-            const response = await fetch(metadataUrl(identifier), { signal: controller.signal });
-            if (!response.ok) throw new Error(`Archive.org responded with HTTP ${response.status}`);
-            return parseMetadataResponse(await response.json());
-        } finally {
-            clearTimeout(timer);
-        }
+        const data = await fetchJSON(metadataUrl(identifier), { attempts: 2, timeoutMs: METADATA_TIMEOUT_MS });
+        return parseMetadataResponse(data);
     }
 
     /** Pick the starting chapter: URL parameter first, then saved progress. */
@@ -211,6 +203,8 @@ export class Player {
             shuffle: byId('shuffleButton'),
             loop: byId('loopButton'),
             share: byId('shareButton'),
+            nowPlayingDot: document.querySelector('.now-playing-dot'),
+            nowPlayingLabel: byId('nowPlayingLabel'),
             speedButtons: Array.from(document.querySelectorAll('.speed-btn[data-speed]'))
         };
         const el = this.elements;
@@ -260,7 +254,9 @@ export class Player {
             audio.addEventListener('playing', () => {
                 this.isLoadingTrack = false;
                 this.consecutiveErrors = 0;
+                this.lastErrorIndex = -1;
                 this.updateState('playing');
+                this.ensureVisualizer();
                 this.visualizer.setActive(true);
             });
             audio.addEventListener('pause', () => {
@@ -297,6 +293,7 @@ export class Player {
         this.currentIndex = index;
         this.pendingSeek = Number.isFinite(seekTo) && seekTo > 0 ? seekTo : null;
         this.isLoadingTrack = true;
+        this.finished = false;
         this.playerState = autoplay ? 'loading' : 'paused';
 
         this.audio.src = track.url;
@@ -323,8 +320,9 @@ export class Player {
 
     async play({ quiet = false } = {}) {
         if (!this.audio) return false;
+        this.finished = false;
         this.updateState('loading');
-        await this.visualizer.resume();
+        this.ensureVisualizer();
         try {
             await this.audio.play();
             return true;
@@ -334,11 +332,26 @@ export class Player {
             this.updateState('paused');
             if (error.name === 'NotAllowedError') {
                 if (!quiet) showToast('Press play to start listening', 'info');
-            } else {
+            } else if (!this.audio.error && error.name !== 'NotSupportedError') {
+                // Media errors are reported once by handleAudioError.
                 showToast('Playback failed. Try another chapter.', 'error');
             }
             return false;
         }
+    }
+
+    /**
+     * Build the visualizer graph on a user gesture, never blocking playback.
+     * The visualizer refuses to attach while the AudioContext is suspended,
+     * so this is safe to call from any play path.
+     */
+    ensureVisualizer() {
+        if (!this.audio) return;
+        if (this.visualizer.isInitialized) {
+            this.visualizer.resume();
+            return;
+        }
+        this.visualizer.initialize(this.audio).catch(error => console.warn('Visualizer initialization failed:', error));
     }
 
     pause() {
@@ -405,8 +418,7 @@ export class Player {
     }
 
     retryCurrentTrack() {
-        const wasPlaying = this.playerState === 'playing';
-        this.loadTrack(this.currentIndex, { autoplay: wasPlaying || true });
+        this.loadTrack(this.currentIndex, { autoplay: true });
     }
 
     handleTrackEnd() {
@@ -420,6 +432,9 @@ export class Player {
             this.nextTrack();
             return;
         }
+        // The book is finished: forget the position so it leaves Continue
+        // Listening, and keep later saves (pagehide) from resurrecting it.
+        this.finished = true;
         this.updateState('paused');
         storage.clearProgress(this.identifier);
         showToast('You have reached the end of this audiobook', 'success', 4000);
@@ -429,7 +444,8 @@ export class Player {
         const audio = this.audio;
         if (!audio || !audio.error || !audio.getAttribute('src')) return;
         this.isLoadingTrack = false;
-        this.consecutiveErrors++;
+        if (this.lastErrorIndex !== this.currentIndex) this.consecutiveErrors++;
+        this.lastErrorIndex = this.currentIndex;
         this.updateState('paused');
 
         const codes = audio.error;
@@ -507,6 +523,7 @@ export class Player {
         if (!this.audio || !this.elements.progress) return;
         const duration = this.audio.duration;
         if (!Number.isFinite(duration) || duration <= 0) return;
+        this.finished = false;
         this.audio.currentTime = (Number(this.elements.progress.value) / 100) * duration;
         this.updateProgress();
         this.saveProgress(true);
@@ -525,14 +542,18 @@ export class Player {
     }
 
     saveProgress(force = false) {
-        if (!this.identifier || !this.audio || !this.playlist.length) return;
+        if (!this.identifier || !this.audio || !this.playlist.length || this.finished) return;
         const now = Date.now();
         if (!force && now - this.lastProgressSave < PROGRESS_SAVE_INTERVAL_MS) return;
+        // Until metadata has loaded the element reports 0; keep the position
+        // that is still waiting to be applied instead of overwriting it.
+        const time = this.pendingSeek !== null ? this.pendingSeek : (this.audio.currentTime || 0);
+        if (!force && this.audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
         this.lastProgressSave = now;
         const track = this.playlist[this.currentIndex];
         storage.setProgress(this.identifier, {
             track: track ? track.originalIndex : 0,
-            time: this.audio.currentTime || 0,
+            time,
             chapters: this.originalPlaylist.length
         });
         this.updateMediaSessionPosition();
@@ -548,23 +569,29 @@ export class Player {
     }
 
     toggleMute() {
-        if (this.volume > 0) {
-            this.lastVolume = this.volume;
-            this.setVolume(0);
+        if (!this.audio) return;
+        if (this.audio.muted) {
+            this.audio.muted = false;
+            if (this.volume === 0) this.setVolume(this.lastVolume > 0 ? this.lastVolume : 1);
         } else {
-            this.setVolume(this.lastVolume > 0 ? this.lastVolume : 1);
+            this.audio.muted = true;
         }
+        this.updateVolumeUI();
     }
 
     updateVolumeUI() {
         const volume = this.audio ? this.audio.volume : this.volume;
+        const muted = !!(this.audio && this.audio.muted) || volume === 0;
         const pct = Math.round(volume * 100);
-        if (this.elements.volumeBar) this.elements.volumeBar.style.width = `${pct}%`;
+        if (this.elements.volumeBar) {
+            this.elements.volumeBar.style.width = `${pct}%`;
+            this.elements.volumeBar.classList.toggle('opacity-40', muted);
+        }
         if (this.elements.volume && Number(this.elements.volume.value) !== pct) this.elements.volume.value = pct;
-        if (this.elements.volumeIcon) this.elements.volumeIcon.innerHTML = volume > 0 ? ICON_VOLUME : ICON_MUTED;
+        if (this.elements.volumeIcon) this.elements.volumeIcon.innerHTML = muted ? ICON_MUTED : ICON_VOLUME;
         if (this.elements.mute) {
-            this.elements.mute.setAttribute('aria-label', volume > 0 ? 'Mute' : 'Unmute');
-            this.elements.mute.setAttribute('aria-pressed', String(volume === 0));
+            this.elements.mute.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
+            this.elements.mute.setAttribute('aria-pressed', String(muted));
         }
     }
 
@@ -669,9 +696,13 @@ export class Player {
             el.playPause.title = playing ? 'Pause (Space)' : 'Play (Space)';
             el.playPause.dataset.state = this.playerState;
         }
-        document.querySelector('.now-playing-dot')?.classList.toggle('paused', !playing);
+        if (el.nowPlayingDot) el.nowPlayingDot.classList.toggle('paused', !playing);
+        if (el.nowPlayingLabel) {
+            el.nowPlayingLabel.textContent = playing ? 'Now Playing' : this.playerState === 'loading' ? 'Loading' : 'Paused';
+        }
         const setDisabled = (button, disabled) => {
             if (!button) return;
+            if (disabled && document.activeElement === button && el.playPause) el.playPause.focus();
             button.disabled = disabled;
             button.classList.toggle('opacity-50', disabled);
             button.classList.toggle('cursor-not-allowed', disabled);
@@ -705,11 +736,21 @@ export class Player {
             item.classList.toggle('active', isCurrent);
             item.setAttribute('aria-current', isCurrent ? 'true' : 'false');
             item.dataset.state = isCurrent ? this.playerState : '';
-            if (isCurrent && changed) {
-                try { item.scrollIntoView({ block: 'nearest' }); } catch { /* ignore */ }
-            }
+            if (isCurrent && changed) this.revealPlaylistItem(item);
         }
         this.lastHighlighted = this.currentIndex;
+    }
+
+    /** Scroll the chapter list (never the page) so the item is visible. */
+    revealPlaylistItem(item) {
+        const container = this.elements.playlist;
+        if (!container) return;
+        const delta = item.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        if (delta < 0) {
+            container.scrollTop += delta;
+        } else if (delta + item.offsetHeight > container.clientHeight) {
+            container.scrollTop += delta + item.offsetHeight - container.clientHeight;
+        }
     }
 
     updatePlaylistInfo() {
@@ -731,10 +772,11 @@ export class Player {
                 <img id="book-cover" class="book-detail-cover" src="${coverUrl(this.identifier)}" alt="" width="120" height="180" loading="lazy" decoding="async">
                 <div class="space-y-2 min-w-0">
                     ${row('Author', this.book.author)}
-                    ${row('Narrator', this.book.narrator || 'Unknown')}
-                    ${row('Language', this.book.language || 'Unknown')}
-                    ${row('Published', firstValue(metadata.year) || firstValue(metadata.date).slice(0, 10) || 'N/A')}
+                    ${row('Narrator', this.book.narrator)}
+                    ${row('Language', this.book.language)}
+                    ${row('Recorded', firstValue(metadata.year) || firstValue(metadata.date).slice(0, 10))}
                     ${row('Runtime', firstValue(metadata.runtime))}
+                    ${row('Chapters', String(this.originalPlaylist.length))}
                     ${row('Genre', joinValues(metadata.genre))}
                     ${row('Subjects', joinValues(metadata.subject).slice(0, 160))}
                 </div>`;

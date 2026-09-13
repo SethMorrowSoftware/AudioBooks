@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0f1419">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://archive.org https://*.archive.org; media-src https://archive.org https://*.archive.org; connect-src https://archive.org https://*.archive.org; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <link rel="preconnect" href="https://archive.org" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   <title>LibriVox Audiobooks - Free Public Domain Audiobooks</title>
 
   <!-- Primary Meta Tags -->
@@ -43,7 +48,7 @@
           </div>
           <div>
             <h1 class="text-lg md:text-xl font-bold text-white tracking-tight">LibriVox</h1>
-            <p class="text-xs text-gray-500 hidden sm:block">Free Audiobooks</p>
+            <p class="text-xs text-gray-400 hidden sm:block">Free Audiobooks</p>
           </div>
         </a>
 
@@ -152,13 +157,13 @@
 
           <!-- Year Range (recording year on Archive.org) -->
           <div class="flex items-center gap-2 ml-auto">
-            <span class="text-xs text-gray-500 hidden sm:inline" id="yearLabel">Year:</span>
+            <span class="text-xs text-gray-400 hidden sm:inline" id="yearLabel" title="Year the recording was published on Archive.org">Year:</span>
             <label for="yearFrom" class="sr-only">Year from</label>
-            <input type="number" id="yearFrom" name="yearFrom" min="1000" inputmode="numeric" placeholder="From"
+            <input type="number" id="yearFrom" name="yearFrom" min="1000" inputmode="numeric" placeholder="From" title="Recording year from"
                    class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
             <span class="text-gray-600" aria-hidden="true">-</span>
             <label for="yearTo" class="sr-only">Year to</label>
-            <input type="number" id="yearTo" name="yearTo" min="1000" inputmode="numeric" placeholder="To"
+            <input type="number" id="yearTo" name="yearTo" min="1000" inputmode="numeric" placeholder="To" title="Recording year to"
                    class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
           </div>
         </div>
@@ -182,23 +187,25 @@
           <span class="w-1 h-6 bg-gradient-to-b from-sky-500 to-cyan-500 rounded-full" aria-hidden="true"></span>
           Audiobooks
         </h2>
-        <div id="pageInfo" class="text-sm text-gray-500 font-medium text-right" aria-live="polite"></div>
+        <div id="pageInfo" class="text-sm text-gray-400 font-medium text-right" aria-live="polite"></div>
       </div>
 
-      <!-- Loading Indicator -->
-      <div id="loading" class="hidden justify-center py-20" role="status">
-        <div class="flex flex-col items-center gap-4">
-          <div class="relative w-14 h-14" aria-hidden="true">
-            <div class="absolute inset-0 rounded-full border-4 border-sky-600/30 border-t-sky-500 animate-spin"></div>
-            <div class="absolute inset-2 rounded-full border-4 border-cyan-600/30 border-t-cyan-500 animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+      <div class="results-area">
+        <!-- Loading Indicator (overlays the grid so nothing shifts) -->
+        <div id="loading" class="hidden justify-center pt-16" role="status">
+          <div class="flex flex-col items-center gap-4">
+            <div class="relative w-14 h-14" aria-hidden="true">
+              <div class="absolute inset-0 rounded-full border-4 border-sky-600/30 border-t-sky-500 animate-spin"></div>
+              <div class="absolute inset-2 rounded-full border-4 border-cyan-600/30 border-t-cyan-500 animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+            </div>
+            <p class="text-gray-300 font-medium">Loading audiobooks...</p>
           </div>
-          <p class="text-gray-400 font-medium">Loading audiobooks...</p>
         </div>
-      </div>
 
-      <!-- Results Grid -->
-      <div id="results" class="books-grid" aria-busy="false">
-        <!-- Results will appear here -->
+        <!-- Results Grid -->
+        <div id="results" class="books-grid" aria-busy="false">
+          <!-- Results will appear here -->
+        </div>
       </div>
 
       <!-- Infinite scroll sentinel -->
@@ -210,7 +217,7 @@
         <button type="button" class="load-more-retry hidden px-5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-sm font-semibold border border-gray-700 transition-colors">
           Could not load more. Retry
         </button>
-        <p class="load-more-done hidden text-sm text-gray-600">You have reached the end of the results.</p>
+        <p class="load-more-done hidden text-sm text-gray-400">You have reached the end of the results.</p>
       </div>
     </section>
 
@@ -261,10 +268,10 @@
   <!-- Footer -->
   <footer class="mt-16 py-8 border-t border-gray-800/50">
     <div class="max-w-7xl mx-auto px-4 text-center">
-      <p class="text-gray-500 text-sm">
+      <p class="text-gray-400 text-sm">
         Powered by <a href="https://librivox.org" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300 transition-colors">LibriVox</a> via <a href="https://archive.org" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300 transition-colors">Archive.org</a>
       </p>
-      <p class="text-gray-600 text-xs mt-2">Free public domain audiobooks read by volunteers worldwide</p>
+      <p class="text-gray-400 text-xs mt-2">Free public domain audiobooks read by volunteers worldwide</p>
     </div>
   </footer>
 

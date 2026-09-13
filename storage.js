@@ -36,11 +36,14 @@ function getBackend() {
 }
 
 function readRaw(key) {
+    // Values written in this session win, so a failed persistent write
+    // (quota, transient SecurityError) never hands back stale data.
+    if (memory.has(key)) return memory.get(key);
     const store = getBackend();
     try {
         if (store) return store.getItem(key);
-    } catch { /* fall through to memory */ }
-    return memory.has(key) ? memory.get(key) : null;
+    } catch { /* unavailable */ }
+    return null;
 }
 
 function writeRaw(key, value) {

@@ -30,7 +30,7 @@ Evidence tags: **[repro]** reproduced in a headless Chromium run against the rea
 | 19 | Low | search.js | Search requests fetch the `description` field that is never rendered. [read] | Fixed: `description` no longer requested [test] |
 | 20 | Low | socialMeta.js | Unused module left over from a live-music app (venues, "concert recording", MusicRecording schema). [read] | Fixed: rewritten for audiobooks (Open Graph, schema.org Audiobook) and wired into the player with a Share button [read] |
 | 21 | Low | styles.css, index.html, player.html | Dead/duplicate CSS (`#waveform`, `.view-btn`, `.chapter-item`, `.skeleton`, `.loading-spinner`, `.search-glow`, duplicated `.filter-chip`), Playfair Display loaded but unused, per-card stagger rules that cannot stagger, progress knob drawn on the buffer bar, focus rule that changes the border radius of focused controls. [read] | Fixed: dead selectors removed, inline styles moved into `styles.css`, knob only on the progress bar, focus rule no longer changes shape, Playfair dropped, hover transforms limited to hover-capable devices [read] |
-| 22 | Low | utils.js, main.js, search.js | Unused exports and globals (`throttle`, `debounce`, `getUrlParams`, `formatNumber`, `getRelativeTime`, `isInViewport`, `scrollToElement`, `window.retryCurrentTrack`, `window.changePage`, `prevPage`/`nextPage` ids). [read] | Fixed: unused helpers and globals removed; the only remaining global is `window.player` for debugging [read] |
+| 22 | Low | utils.js, main.js, search.js | Unused exports and globals (`throttle`, `debounce`, `getUrlParams`, `formatNumber`, `getRelativeTime`, `isInViewport`, `scrollToElement`, `window.retryCurrentTrack`, `window.changePage`, `prevPage`/`nextPage` ids). [read] | Fixed: unused helpers and globals removed; the only remaining global is `window.player` for debugging |
 | 23 | Low | index.html | Category `<select>` is hand-copied and drifts from `categoryConfig.js` (Louisa May Alcott, L. Frank Baum, Custom missing). [read] | Fixed: the select is rendered from `getAllCategories()` [repro] |
 | 24 | Low | visualizer.js | Animation loop runs while paused and while the tab is hidden, canvas ignores devicePixelRatio, resize listener is never removed, a gradient is allocated per bar per frame. [read] | Fixed: loop runs only while playing and while the tab is visible, DPR-aware canvas, cached gradient, listeners removed on destroy [repro] |
 | 25 | Low | repo | No README, tests or lint. [read] | Fixed: README, `npm test`, Tailwind build scripts [read] |
@@ -44,6 +44,25 @@ Evidence tags: **[repro]** reproduced in a headless Chromium run against the rea
 | 28 | Med | styles.css, player.html | Library grid overflowed the viewport on phones (`1fr` columns take the card's min-content width); the chapter summary chip overflowed at 320px. [repro] | Fixed: `minmax(0, 1fr)` columns, `min-width: 0`, wrapping summary |
 | 29 | Low | utils.js | `animate-fade-out` used by toasts was never defined. [read] | Fixed |
 | 30 | Low | main.js | Autoplay was attempted on every load, producing a "click play" toast on direct links. [read] | Fixed: autoplay only when arriving from the library |
+| 31 | High | search.js | The request timeout aborted the fetch with the same AbortError used for caller cancellation, so a slow Archive.org left the spinner up forever with no error or retry. [read] | Fixed: typed TimeoutError/NetworkError/HttpError/ParseError in `fetchJSON`, retried when transient, surfaced with a plain message [test] |
+| 32 | Med | player.js, visualizer.js | Routing the audio element through an AudioContext created without a user gesture can leave playback silent, and awaiting `resume()` could stall autoplay until an unrelated click. [read] | Fixed: the visualizer only attaches when its context is actually running (checked with a 300ms race), is retried on each play, and never blocks playback |
+| 33 | Med | search.js | A failed fresh search kept the previous result set in memory, so infinite scroll could append pages of the old query under the error panel. [read] | Fixed: paging state is reset when a fresh search starts and loading is blocked while it is in flight |
+| 34 | Med | player.js | Finishing a book cleared the saved position, but the unload save wrote it back, resurrecting the book in Continue Listening. [read] | Fixed: a `finished` flag suppresses saves until playback resumes |
+| 35 | Med | player.js | Leaving the page before the resumed chapter's metadata arrived overwrote the saved position with 0. [read] | Fixed: the pending resume position is saved instead |
+| 36 | Med | player.js | A book was added to Recently Viewed before the playable-file check, leaving a permanently broken Continue Listening chip for items without audio. [read] | Fixed: recorded only after a playlist exists |
+| 37 | Low | player.js | An unplayable chapter produced both a toast and an inline error panel; the "several chapters failed" message also appeared after retrying one chapter three times. [read] | Fixed: media errors are reported once, the counter only increments across different chapters |
+| 38 | Low | player.js | Non-JSON metadata responses showed a raw JSON parse error to the user. [read] | Fixed: shared `fetchJSON` with a plain-language message |
+| 39 | Low | storage.js | After a failed persistent write, reads returned the stale stored value instead of the newer in-memory one. [read] | Fixed: memory-first reads [test] |
+| 40 | Med | index.html, player.html | No Content-Security-Policy; inline scripts and handlers previously prevented adopting one. [read] | Fixed: CSP meta on both pages (`script-src 'self'`, Archive.org allow-listed for images, media and fetch); harness confirms no violations |
+| 41 | Med | search.js | Search text such as "Dracula: Chapter 1" was sent as a field query on a field named Dracula. [read] | Fixed: colons are dropped outside Advanced Search [test] |
+| 42 | Med | player.html, index.html | Every `<summary>` used `display:flex`, which removes the disclosure marker, so collapsible sections had no expand/collapse affordance. [read] | Fixed: CSS chevron that rotates when open |
+| 43 | Med | index.html, player.html | Informative small text used gray-500/600 on the dark background (about 3.9:1 and 2.5:1 contrast). [read] | Fixed: gray-400 or lighter for meaningful text |
+| 44 | Med | styles.css | Always-on animations: header gradient repainting every frame, blurred pulsing ring on the play button, waveform pulse, drop-shadow filter on the 60fps canvas, backdrop filters on every card overlay and badge. [read] | Fixed: static header, pulse only while playing, filters removed |
+| 45 | Low | styles.css | Active chapter and hover rows were translated 4px inside an overflow container (permanent horizontal scrollbar); active filter chips sat 3px higher than their neighbours; delayed card fade-ins blinked because the animation had no backwards fill; the hover glow pseudo-element was clipped and never rendered. [read] | Fixed |
+| 46 | Low | player.js | Subject tags took the first two subjects before filtering, so long or boilerplate subjects ("librivox", "audiobooks") hid useful ones. [read] | Fixed: `subjectTags` splits, filters and de-duplicates [test] |
+| 47 | Low | player.js | "Published" showed the Archive.org recording year; "Narrator: Unknown" appeared for most books. [read] | Fixed: labelled "Recorded", narrator row only when present, chapter count added |
+| 48 | Low | player.js | Keyboard focus was dropped to the page when the Next button became disabled while focused; the chapter list scrolled the whole page into view on state changes. [read] | Fixed: focus moves to Play, only the list scrolls |
+| 49 | Low | index.html, styles.css | The loading spinner was inserted above the grid on every search (200px layout shift); fonts were loaded through a render-blocking `@import` chain; no preconnect to Archive.org; first-row covers were lazy-loaded. [read] | Fixed: overlay spinner with dimmed grid, font link and preconnects in the head, first six covers eager |
 
 ## Suspicions checked and dropped
 
@@ -52,12 +71,24 @@ Evidence tags: **[repro]** reproduced in a headless Chromium run against the rea
 
 ## Verification
 
-- `npm test` runs the Node unit tests for the pure modules (`archive.js`, `utils.js`, `storage.js`).
+- `npm test` syntax-checks every module and runs the Node unit tests for the pure modules (`archive.js`, `utils.js`, `storage.js`, `categoryConfig.js`): 31 tests.
 - A headless Chromium harness (kept outside the repo) drives both pages with Archive.org mocked, including an XSS probe, a 5-chapter item with derivatives, a failing page load, blocked storage and a 390px viewport. Its before/after results back the [repro] tags above.
+
+## Independent audit workflow
+
+A nine-dimension multi-agent audit (player state, search flow, security, accessibility, UI/CSS, Archive.org contract, dead code, performance, robustness) plus a two-agent gap round produced 140 raw findings. All of them were triaged against this list: every distinct defect is either fixed above or recorded under "Open" below. The workflow's own deduplication and voting phases were stopped as redundant once the triage was complete; a separate adversarial review of the final diff follows.
+
+## Open
+
+| # | Sev. | Area | Item | Why it is open |
+|---|------|------|------|----------------|
+| O1 | Med | search.js, index.html | The "Solo Reader" and "Complete Works" chips query `subject:(solo)` / `subject:(complete)`; the auditors believe LibriVox items rarely carry those subject terms, so the chips may return very few results. | Cannot be verified from this sandbox (archive.org is blocked). Check the live API; if confirmed, replace with a description-based heuristic or remove the chips. |
+| O2 | Low | categoryConfig.js | Language categories use `language:(French)` etc.; Archive.org items sometimes use ISO codes instead of names. | Needs a live check; extend to `(French OR fre OR fra)` if results are missing. |
+| O3 | Low | repo | `package.json` carried an MIT license field but the repository has no LICENSE file. | The field was removed; adding a license is the owner's decision. |
+| O4 | Low | repo | No ESLint/CI; `npm test` runs a syntax check plus the unit tests. | Optional: add eslint and a GitHub Actions workflow that runs `npm test` and `npm run build:css --check`. |
 
 ## Still to do
 
-1. Fold in the results of the independent multi-agent audit that is still running (its finder phase reported 130 raw findings before deduplication; anything not already covered above will be triaged here).
-2. Independent adversarial review of the full diff, then fix whatever it finds.
-3. Verify against the live Archive.org API from a machine with network access (this sandbox cannot reach archive.org): confirm the `language` values used by the "English Only" filter and the language categories, and spot-check a few real items' file lists against `selectAudioFiles`.
-4. Optional follow-ups not started: sleep timer, chapter bookmarks, offline caching of chapters, a Content-Security-Policy header once the host supports it.
+1. Independent adversarial review of the full diff, then fix whatever it finds.
+2. Verify O1 and O2 against the live Archive.org API from a machine with network access, and spot-check a few real items' file lists against `selectAudioFiles`.
+3. Optional follow-ups not started: sleep timer, chapter bookmarks, offline caching of chapters.

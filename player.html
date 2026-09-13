@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0f1419">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://archive.org https://*.archive.org; media-src https://archive.org https://*.archive.org; connect-src https://archive.org https://*.archive.org; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <link rel="preconnect" href="https://archive.org" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   <title>Audiobook Player - LibriVox</title>
   <meta name="description" content="Listen to free audiobooks from LibriVox">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253'/%3E%3C/svg%3E">
@@ -70,7 +75,7 @@
               </span>
               <span>Chapters</span>
             </span>
-            <span id="playlistInfo" class="text-xs sm:text-sm text-gray-500 font-semibold bg-gray-800/50 px-3 sm:px-4 py-2 rounded-full text-right"></span>
+            <span id="playlistInfo" class="text-xs sm:text-sm text-gray-300 font-semibold bg-gray-800/50 px-3 sm:px-4 py-2 rounded-full text-right"></span>
           </summary>
 
           <div id="playlistContainer"
@@ -88,8 +93,8 @@
         <!-- Now Playing Info -->
         <div class="text-center space-y-2 py-2">
           <div class="now-playing-badge inline-flex items-center gap-2 px-4 py-1.5 bg-sky-600/20 rounded-full text-xs md:text-sm text-sky-400 font-bold uppercase tracking-wide">
-            <span class="now-playing-dot w-2 h-2 rounded-full bg-sky-400" aria-hidden="true"></span>
-            Now Playing
+            <span class="now-playing-dot paused w-2 h-2 rounded-full bg-sky-400" aria-hidden="true"></span>
+            <span id="nowPlayingLabel">Paused</span>
           </div>
           <h2 id="trackTitle" class="text-xl md:text-3xl font-bold text-white leading-tight px-4 min-h-[2.5rem] break-words" aria-live="polite"></h2>
           <div id="trackInfo" class="text-sm md:text-base text-gray-400 font-medium"></div>
@@ -217,7 +222,7 @@
 
             <!-- Playback Speed -->
             <div class="flex items-center gap-2" role="group" aria-label="Playback speed">
-              <span class="text-xs text-gray-500 font-semibold uppercase hidden md:inline">Speed:</span>
+              <span class="text-xs text-gray-400 font-semibold uppercase hidden md:inline">Speed:</span>
               <div class="flex gap-1 bg-gray-900/50 p-1 rounded-lg border border-gray-700/50 flex-wrap justify-center">
                 <button type="button" class="speed-btn" data-speed="0.75" aria-pressed="false">0.75×</button>
                 <button type="button" class="speed-btn active" data-speed="1" aria-pressed="true">1×</button>

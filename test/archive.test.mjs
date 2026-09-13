@@ -179,3 +179,91 @@ test('selectAudioFiles gives derivative-only chapters a title even when only the
     ]);
     assert.deepEqual(chapters.map(c => [c.name, c.title, c.track]), [['c_01_64kb.mp3', 'One', 1], ['c_02.ogg', 'c 02', null]]);
 });
+
+import { subjectTags, fetchJSON, describeFetchError, isRetryableError, HttpError } from '../archive.js';
+
+test('sanitizeUserQuery drops colons unless field syntax is allowed', () => {
+    assert.equal(sanitizeUserQuery('Dracula: Chapter 1'), 'Dracula Chapter 1');
+    assert.equal(sanitizeUserQuery('Dracula: Chapter 1', { allowFieldSyntax: true }), 'Dracula: Chapter 1');
+    assert.equal(buildSearchQuery({ category: 'Title_Search', query: 'Dracula: Chapter 1' }), 'collection:(librivoxaudio) AND title:(Dracula Chapter 1)');
+    assert.equal(buildSearchQuery({ category: 'Custom', query: 'creator:austen AND title:emma' }), 'collection:(librivoxaudio) AND (creator:austen AND title:emma)');
+});
+
+test('subjectTags splits, filters boilerplate, de-duplicates and caps', () => {
+    assert.deepEqual(subjectTags(['Fiction', 'Romance', 'Audiobook', 'A very long subject name that exceeds twenty characters']), ['Fiction', 'Romance']);
+    assert.deepEqual(subjectTags('librivox; audiobooks; literature; ghost stories'), ['Ghost stories']);
+    assert.deepEqual(subjectTags(['fiction', 'Fiction', 'poetry']), ['Fiction', 'Poetry']);
+    assert.deepEqual(subjectTags(undefined), []);
+    assert.deepEqual(subjectTags(['x'.repeat(20)]), []);
+});
+
+function fakeFetch(steps) {
+    let calls = 0;
+    const impl = (url, { signal } = {}) => {
+        const step = steps[Math.min(calls, steps.length - 1)];
+        calls++;
+        if (step === 'network') return Promise.reject(new TypeError('Failed to fetch'));
+        if (step === 'hang') {
+            return new Promise((resolve, reject) => {
+                signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+            });
+        }
+        if (step === 'bad-json') return Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('Unexpected token')) });
+        if (typeof step === 'number') return Promise.resolve({ ok: step < 400, status: step, json: () => Promise.resolve({ status: step }) });
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(step) });
+    };
+    return { impl, calls: () => calls };
+}
+const noSleep = () => Promise.resolve();
+
+test('fetchJSON retries 5xx then succeeds', async () => {
+    const f = fakeFetch([503, 502, { ok: 'yes' }]);
+    assert.deepEqual(await fetchJSON('u', { fetchImpl: f.impl, sleep: noSleep }), { ok: 'yes' });
+    assert.equal(f.calls(), 3);
+});
+
+test('fetchJSON does not retry 4xx and reports the status', async () => {
+    const f = fakeFetch([404]);
+    await assert.rejects(fetchJSON('u', { fetchImpl: f.impl, sleep: noSleep }), err => err instanceof HttpError && err.status === 404);
+    assert.equal(f.calls(), 1);
+});
+
+test('fetchJSON classifies network failures, timeouts and bad JSON', async () => {
+    const net = fakeFetch(['network']);
+    await assert.rejects(fetchJSON('u', { fetchImpl: net.impl, sleep: noSleep, attempts: 2 }), err => err.name === 'NetworkError');
+    assert.equal(net.calls(), 2);
+
+    const slow = fakeFetch(['hang']);
+    await assert.rejects(fetchJSON('u', { fetchImpl: slow.impl, sleep: noSleep, attempts: 2, timeoutMs: 5 }), err => err.name === 'TimeoutError');
+    assert.equal(slow.calls(), 2);
+
+    const bad = fakeFetch(['bad-json']);
+    await assert.rejects(fetchJSON('u', { fetchImpl: bad.impl, sleep: noSleep, attempts: 2 }), err => err.name === 'ParseError');
+});
+
+test('fetchJSON honours the caller abort signal without retrying', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const f = fakeFetch([{ never: true }]);
+    await assert.rejects(fetchJSON('u', { fetchImpl: f.impl, signal: controller.signal, sleep: noSleep }), err => err.name === 'AbortError');
+    assert.equal(f.calls(), 0);
+
+    const hang = fakeFetch(['hang']);
+    const late = new AbortController();
+    const pending = fetchJSON('u', { fetchImpl: hang.impl, signal: late.signal, sleep: noSleep, timeoutMs: 10000 });
+    setTimeout(() => late.abort(), 5);
+    await assert.rejects(pending, err => err.name === 'AbortError');
+    assert.equal(hang.calls(), 1);
+});
+
+test('isRetryableError and describeFetchError', () => {
+    assert.equal(isRetryableError(new HttpError('x', 500)), true);
+    assert.equal(isRetryableError(new HttpError('x', 429)), true);
+    assert.equal(isRetryableError(new HttpError('x', 400)), false);
+    assert.equal(isRetryableError(Object.assign(new Error(), { name: 'AbortError' })), false);
+    assert.equal(isRetryableError(Object.assign(new Error(), { name: 'TimeoutError' })), true);
+    assert.match(describeFetchError(Object.assign(new Error(), { name: 'TimeoutError' })), /too long/);
+    assert.match(describeFetchError(new HttpError('x', 429)), /rate-limiting/);
+    assert.match(describeFetchError(new HttpError('x', 502)), /HTTP 502/);
+    assert.equal(describeFetchError(new Error('custom')), 'custom');
+});

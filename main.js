@@ -63,7 +63,7 @@ function initializeSearchPageSafely() {
                 <div class="col-span-full text-center my-8 p-6 bg-gray-800 border-2 border-red-900 rounded-lg" role="alert">
                     <h3 class="text-xl font-semibold text-red-400 mb-2">Initialization Error</h3>
                     <p class="text-gray-400 mb-4">The application failed to start properly.</p>
-                    <button type="button" id="reloadPage" class="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors">Reload Page</button>
+                    <button type="button" id="reloadPage" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors">Reload Page</button>
                 </div>`;
             resultsDiv.querySelector('#reloadPage')?.addEventListener('click', () => location.reload());
         }

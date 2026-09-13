@@ -57,11 +57,14 @@ export function isValidIdentifier(identifier) {
  * parse error: drop characters that only carry Lucene syntax, and remove
  * quotes/parentheses entirely when they are unbalanced.
  */
-export function sanitizeUserQuery(raw) {
+export function sanitizeUserQuery(raw, { allowFieldSyntax = false } = {}) {
     let q = String(raw ?? '').trim();
     if (!q) return '';
 
     q = q.replace(/[\\{}[\]^~/]/g, ' ');
+    // "Dracula: Chapter 1" would otherwise be parsed as a query on a field
+    // named Dracula. Only the advanced mode keeps field syntax.
+    if (!allowFieldSyntax) q = q.replace(/:/g, ' ');
 
     const quoteCount = (q.match(/"/g) || []).length;
     if (quoteCount % 2 === 1) q = q.replace(/"/g, ' ');
@@ -104,7 +107,7 @@ export function normalizeYear(value) {
  * @param {Iterable<string>} opts.filters  active quick-filter ids
  */
 export function buildSearchQuery({ category = 'AllLibriVox', config = {}, query = '', yearFrom = '', yearTo = '', filters = [] } = {}) {
-    const text = sanitizeUserQuery(query);
+    const text = sanitizeUserQuery(query, { allowFieldSyntax: category === 'Custom' });
     let lucene;
 
     if (category === 'Author_Search') {
@@ -133,6 +136,27 @@ export function buildSearchQuery({ category = 'AllLibriVox', config = {}, query 
     return lucene;
 }
 
+const NOISE_SUBJECTS = /^(librivox|audio ?books?|audio|literature)$/i;
+
+/**
+ * Short genre tags from the subject field: splits "a; b" strings, drops
+ * boilerplate subjects and long entries, and de-duplicates.
+ */
+export function subjectTags(subject, { max = 2, maxLength = 20 } = {}) {
+    const seen = new Set();
+    const tags = [];
+    for (const raw of asList(subject).flatMap(s => s.split(/[;|]/))) {
+        const tag = raw.trim();
+        if (!tag || tag.length >= maxLength || NOISE_SUBJECTS.test(tag)) continue;
+        const key = tag.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        tags.push(tag.charAt(0).toUpperCase() + tag.slice(1));
+        if (tags.length === max) break;
+    }
+    return tags;
+}
+
 /** URL for the advancedsearch endpoint. */
 export function buildSearchUrl(query, { rows = 24, page = 1, fields = SEARCH_FIELDS, sort = 'downloads desc' } = {}) {
     const params = new URLSearchParams();
@@ -157,6 +181,93 @@ export function parseSearchResponse(data) {
     if (!response || !Array.isArray(response.docs)) throw new Error('Unexpected response from Archive.org');
     const numFound = Number(response.numFound);
     return { docs: response.docs, numFound: Number.isFinite(numFound) ? numFound : response.docs.length };
+}
+
+/* ------------------------------------------------------------------ */
+/* HTTP                                                               */
+/* ------------------------------------------------------------------ */
+
+export class HttpError extends Error {
+    constructor(message, status) {
+        super(message);
+        this.name = 'HttpError';
+        this.status = status;
+    }
+}
+
+function namedError(name, message, cause) {
+    const error = new Error(message);
+    error.name = name;
+    if (cause) error.cause = cause;
+    return error;
+}
+
+function abortError() {
+    return typeof DOMException !== 'undefined' ? new DOMException('Aborted', 'AbortError') : namedError('AbortError', 'Aborted');
+}
+
+/** Transient failures worth retrying: network, timeout, 429 and 5xx. */
+export function isRetryableError(error) {
+    if (!error) return false;
+    if (error.name === 'AbortError') return false;
+    if (error.name === 'HttpError') return error.status === 429 || error.status >= 500;
+    return error.name === 'NetworkError' || error.name === 'TimeoutError' || error.name === 'ParseError';
+}
+
+/** A short user-facing explanation for a failed request. */
+export function describeFetchError(error) {
+    switch (error && error.name) {
+        case 'TimeoutError': return 'Archive.org is taking too long to respond. Please try again.';
+        case 'NetworkError': return 'Unable to reach Archive.org. Please check your connection.';
+        case 'ParseError': return 'Archive.org returned an unreadable response. Please try again.';
+        case 'HttpError': return error.status === 429
+            ? 'Archive.org is rate-limiting requests. Please wait a moment and try again.'
+            : `Archive.org responded with an error (HTTP ${error.status}). This is usually temporary.`;
+        default: return (error && error.message) || 'Something went wrong talking to Archive.org.';
+    }
+}
+
+/**
+ * fetch + JSON with a per-attempt timeout and retries for transient failures.
+ * Errors carry a `name` of AbortError (caller cancelled), TimeoutError,
+ * NetworkError, HttpError (with `status`) or ParseError.
+ */
+export async function fetchJSON(url, { signal, attempts = 3, timeoutMs = 15000, retryDelayMs = 1000, fetchImpl = globalThis.fetch, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        if (signal && signal.aborted) throw abortError();
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+        try {
+            let response;
+            try {
+                response = await fetchImpl(url, { signal: controller.signal });
+            } catch (error) {
+                if (signal && signal.aborted) throw abortError();
+                if (timedOut) throw namedError('TimeoutError', 'Archive.org took too long to respond', error);
+                throw namedError('NetworkError', 'Could not reach Archive.org', error);
+            }
+            if (!response.ok) throw new HttpError(`Archive.org responded with HTTP ${response.status}`, response.status);
+            try {
+                return await response.json();
+            } catch (error) {
+                if (signal && signal.aborted) throw abortError();
+                if (timedOut) throw namedError('TimeoutError', 'Archive.org took too long to respond', error);
+                throw namedError('ParseError', 'Archive.org returned an unreadable response', error);
+            }
+        } catch (error) {
+            lastError = error;
+            if (error.name === 'AbortError' || !isRetryableError(error) || attempt === attempts) throw error;
+            await sleep(retryDelayMs * attempt);
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', onAbort);
+        }
+    }
+    throw lastError;
 }
 
 /* ------------------------------------------------------------------ */
