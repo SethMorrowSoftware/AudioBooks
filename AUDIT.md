@@ -72,7 +72,7 @@ Evidence tags: **[repro]** reproduced in a headless Chromium run against the rea
 ## Verification
 
 - `npm test` syntax-checks every module and runs the Node unit tests for the pure modules (`archive.js`, `utils.js`, `storage.js`, `categoryConfig.js`): 38 tests.
-- A headless Chromium harness (kept outside the repo) drives both pages with Archive.org mocked, including an XSS probe, a 5-chapter item with derivatives, a failing page load, blocked storage and a 390px viewport. Its before/after results back the [repro] tags above.
+- `npm run e2e` (`test/e2e/journeys.mjs`, Playwright) drives both pages in headless Chromium with Archive.org mocked, including an XSS probe, a 5-chapter item with derivatives, a failing page load, blocked storage and a 390px viewport, and asserts the fixed behaviour. Its before/after results back the [repro] tags above.
 
 ## Independent review of the fixes
 

@@ -27,8 +27,14 @@ a static host (GitHub Pages, Netlify, an S3 bucket, ...).
 npm install          # only needed to rebuild Tailwind CSS
 npm run build:css    # regenerates tailwind.css from the classes used in *.html and *.js
 npm run watch:css    # same, but rebuilds on every change
-npm test             # unit tests for the pure modules (node --test)
+npm test             # syntax check + unit tests for the pure modules (node --test)
+npm run e2e          # headless browser journeys with Archive.org mocked (needs: npx playwright install chromium)
 ```
+
+The end-to-end suite (`test/e2e/`) starts a static server on a free port,
+mocks every Archive.org endpoint (including an XSS probe, a five-chapter
+item with derivatives, a failing page load, blocked storage and a phone
+viewport) and asserts the behaviour of both pages.
 
 `tailwind.css` is committed so the site can be deployed without a build
 step. Run `npm run build:css` after adding new Tailwind utility classes to
@@ -47,7 +53,7 @@ the HTML or JS and commit the result.
 | `visualizer.js` | Web Audio frequency visualiser (runs only while playing) |
 | `socialMeta.js` | Open Graph / JSON-LD metadata for the player page |
 | `styles.css` | Hand-written styles on top of the compiled Tailwind utilities |
-| `test/` | `node --test` suites |
+| `test/` | `node --test` suites; `test/e2e/` Playwright journeys |
 
 ## Archive.org notes
 

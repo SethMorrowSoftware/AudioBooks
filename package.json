@@ -9,9 +9,11 @@
     "watch:css": "tailwindcss -c tailwind.config.js -i src/tailwind.css -o tailwind.css --watch",
     "test": "node scripts/lint.mjs && node --test 'test/*.test.mjs'",
     "serve": "python3 -m http.server 8080",
-    "lint": "node scripts/lint.mjs"
+    "lint": "node scripts/lint.mjs",
+    "e2e": "node test/e2e/journeys.mjs"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.17",
+    "playwright": "^1.49.1"
   }
 }
