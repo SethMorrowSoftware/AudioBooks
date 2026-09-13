@@ -89,6 +89,9 @@ export async function searchAudiobooks(page = 1, { append = false } = {}) {
         state.page = page;
         state.total = numFound;
         state.results = append ? state.results.concat(docs) : docs;
+        // Archive.org's numFound can exceed what it will actually page out;
+        // a short or empty page means there is nothing more to load.
+        if (append && docs.length < RESULTS_PER_PAGE) state.total = state.results.length;
 
         hideLoading();
         resultsDiv?.classList.remove('is-loading');
@@ -128,7 +131,7 @@ function renderResults(docs, append) {
                     </svg>
                 </div>
                 <h3 class="text-xl font-bold text-gray-300 mb-2">No audiobooks found</h3>
-                <p class="text-gray-500">Try adjusting your search criteria or filters</p>
+                <p class="text-gray-400">Try adjusting your search criteria or filters</p>
             </div>`;
         return;
     }
@@ -167,7 +170,7 @@ export function createBookCard(book, { delay = 0, eager = false } = {}) {
     const runtime = firstValue(book.runtime);
     const genreTags = subjectTags(book.subject);
 
-    const href = `player.html?id=${encodeURIComponent(identifier)}`;
+    const href = playerUrl(identifier);
     const label = `${title} by ${author}`;
 
     return `
@@ -303,14 +306,23 @@ function loadNextPageIfSentinelVisible() {
 
 function setupInfiniteScroll() {
     const sentinel = document.getElementById('loadMore');
-    if (!sentinel || !('IntersectionObserver' in window)) return;
+    if (!sentinel) return;
 
     sentinel.querySelector('.load-more-retry')?.addEventListener('click', loadNextPage);
 
-    const observer = new IntersectionObserver(entries => {
-        if (entries.some(entry => entry.isIntersecting) && sentinel.dataset.state !== 'error') loadNextPage();
-    }, { rootMargin: '400px 0px' });
-    observer.observe(sentinel);
+    if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver(entries => {
+            if (entries.some(entry => entry.isIntersecting) && sentinel.dataset.state !== 'error') loadNextPage();
+        }, { rootMargin: '400px 0px' });
+        observer.observe(sentinel);
+        return;
+    }
+    let scheduled = false;
+    window.addEventListener('scroll', () => {
+        if (scheduled) return;
+        scheduled = true;
+        setTimeout(() => { scheduled = false; loadNextPageIfSentinelVisible(); }, 200);
+    }, { passive: true });
 }
 
 /* ------------------------------------------------------------------ */
@@ -338,21 +350,35 @@ export async function pickRandomBook() {
         toast.dismiss();
         if (candidates.length === 0) {
             showToast('No books found, try another category', 'warning');
+            release();
             return;
         }
         const book = candidates[Math.floor(Math.random() * candidates.length)];
         showToast(firstValue(book.title, 'Opening audiobook...'), 'success', 1200);
+        // Stay "in flight" until the navigation happens so a second press
+        // cannot start a competing pick.
         setTimeout(() => {
-            window.location.href = `player.html?id=${encodeURIComponent(firstValue(book.identifier))}`;
+            window.location.href = playerUrl(firstValue(book.identifier));
         }, 500);
     } catch (error) {
         console.error('Random book error:', error);
         toast.dismiss();
         showToast('Could not pick a random book right now', 'error');
-    } finally {
+        release();
+    }
+
+    function release() {
         state.randomInFlight = false;
         if (button) button.disabled = false;
     }
+}
+
+/** Link to the player; the library's own links ask for autoplay explicitly. */
+function playerUrl(identifier, track) {
+    const params = new URLSearchParams({ id: identifier });
+    if (Number.isInteger(track) && track > 0) params.set('track', String(track));
+    params.set('autoplay', '1');
+    return `player.html?${params}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -366,7 +392,8 @@ function renderContinueListening() {
 
     const entries = storage.getRecentlyViewed()
         .map(entry => ({ ...entry, progress: storage.getProgress(entry.identifier) }))
-        .filter(entry => isValidIdentifier(entry.identifier))
+        .filter(entry => isValidIdentifier(entry.identifier) && entry.progress)
+        .sort((a, b) => b.progress.updatedAt - a.progress.updatedAt)
         .slice(0, 6);
 
     if (entries.length === 0) {
@@ -375,11 +402,9 @@ function renderContinueListening() {
     }
 
     list.innerHTML = entries.map(entry => {
-        const track = entry.progress ? entry.progress.track + 1 : 1;
-        const href = `player.html?id=${encodeURIComponent(entry.identifier)}${entry.progress ? `&track=${track}` : ''}`;
-        const meta = entry.progress
-            ? `Chapter ${track}${entry.progress.chapters ? ` of ${entry.progress.chapters}` : ''}`
-            : 'Start listening';
+        const track = entry.progress.track + 1;
+        const href = playerUrl(entry.identifier, track);
+        const meta = `Chapter ${track}${entry.progress.chapters ? ` of ${entry.progress.chapters}` : ''}`;
         return `
             <a class="continue-chip" href="${href}">
                 <img class="continue-cover" src="${coverUrl(entry.identifier)}" alt="" width="40" height="60" loading="lazy" decoding="async">
@@ -488,6 +513,16 @@ export function initSearchPage() {
         } else if (event.key === 'r' || event.key === 'R') {
             event.preventDefault();
             pickRandomBook();
+        }
+    });
+
+    // A back/forward-cache restore keeps JS state: never leave the random
+    // button disabled from a pick that navigated away.
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) {
+            state.randomInFlight = false;
+            if (randomButton) randomButton.disabled = false;
+            renderContinueListening();
         }
     });
 

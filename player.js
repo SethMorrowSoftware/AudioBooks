@@ -6,7 +6,7 @@ import { Visualizer } from './visualizer.js';
 import { updateAudiobookMeta, buildShareUrl } from './socialMeta.js';
 import {
     metadataUrl, downloadUrl, coverUrl, detailsUrl, parseMetadataResponse, selectAudioFiles,
-    fetchJSON, describeFetchError, joinValues, firstValue
+    fetchJSON, describeFetchError, joinValues, firstValue, asList
 } from './archive.js';
 
 const METADATA_TIMEOUT_MS = 20000;
@@ -111,7 +111,7 @@ export class Player {
             const archiveLink = document.getElementById('archive-link');
             if (archiveLink) archiveLink.href = detailsUrl(identifier);
 
-            updateAudiobookMeta({ identifier, title, author, narrator, language, description: firstValue(metadata.description), coverUrl: coverUrl(identifier) });
+            updateAudiobookMeta({ identifier, title, author, narrator, language, description: asList(metadata.description).join(' '), coverUrl: coverUrl(identifier) });
 
             const chapters = selectAudioFiles(files);
             if (chapters.length === 0) throw new Error('No playable audio files were found for this audiobook.');
@@ -200,6 +200,7 @@ export class Player {
             volumeIcon: byId('volumeIcon'),
             volume: byId('volumeControl'),
             volumeBar: byId('volumeBar'),
+            volumeGroup: byId('volumeGroup'),
             shuffle: byId('shuffleButton'),
             loop: byId('loopButton'),
             share: byId('shareButton'),
@@ -228,7 +229,7 @@ export class Player {
             el.progress.addEventListener('change', () => this.commitSeek());
             // A press that never changed the value (tap on the thumb, cancelled
             // touch, Tab away) must not leave the progress bar frozen.
-            for (const type of ['pointerup', 'pointercancel', 'blur']) {
+            for (const type of ['pointerup', 'pointercancel', 'blur', 'keyup']) {
                 el.progress.addEventListener(type, () => setTimeout(endSeek, 0));
             }
         }
@@ -277,6 +278,14 @@ export class Player {
             audio.addEventListener('volumechange', () => this.updateVolumeUI());
         }
 
+        // iOS keeps media volume under hardware control: the property reads
+        // back 1 whatever is assigned. Hide the slider there instead of
+        // showing one that snaps back.
+        if (this.audio) {
+            this.audio.volume = 0.37;
+            this.volumeSettable = Math.abs(this.audio.volume - 0.37) < 0.01;
+            if (!this.volumeSettable) this.elements.volumeGroup?.classList.add('hidden');
+        }
         this.setVolume(this.volume, { persist: false });
         this.syncSpeedButtons();
         this.renderPlaylist();
@@ -299,6 +308,7 @@ export class Player {
         this.currentIndex = index;
         this.pendingSeek = Number.isFinite(seekTo) && seekTo > 0 ? seekTo : null;
         this.isLoadingTrack = true;
+        this.isSeeking = false;
         this.finished = false;
         this.playerState = autoplay ? 'loading' : 'paused';
 
@@ -402,10 +412,10 @@ export class Player {
             return true;
         }
         if (this.currentIndex > 0) {
-            return this.loadTrack(this.currentIndex - 1, { autoplay: autoplay && !this.audio.paused });
+            return this.loadTrack(this.currentIndex - 1, { autoplay });
         }
         if (this.loopMode === 'all' && this.playlist.length > 0) {
-            return this.loadTrack(this.playlist.length - 1, { autoplay: autoplay && !this.audio.paused });
+            return this.loadTrack(this.playlist.length - 1, { autoplay });
         }
         this.audio.currentTime = 0;
         this.updateProgress();
@@ -592,7 +602,7 @@ export class Player {
     }
 
     updateVolumeUI() {
-        const volume = this.audio ? this.audio.volume : this.volume;
+        const volume = this.volume;
         const muted = !!(this.audio && this.audio.muted) || volume === 0;
         const pct = Math.round(volume * 100);
         if (this.elements.volumeBar) {
@@ -666,6 +676,7 @@ export class Player {
         if (this.elements.loop) {
             this.elements.loop.classList.toggle('text-sky-400', this.loopMode !== 'none');
             this.elements.loop.setAttribute('aria-pressed', String(this.loopMode !== 'none'));
+            this.elements.loop.setAttribute('aria-label', `Repeat: ${labels[this.loopMode]}`);
             this.elements.loop.title = `Repeat: ${labels[this.loopMode]}`;
             this.elements.loop.dataset.mode = this.loopMode;
         }
@@ -686,7 +697,11 @@ export class Player {
             }
         }
         const copied = await copyToClipboard(url);
-        showToast(copied ? 'Link copied to clipboard' : 'Could not copy the link', copied ? 'success' : 'error');
+        if (copied) {
+            showToast('Link copied to clipboard', 'success');
+        } else {
+            window.prompt('Copy this link to share the chapter:', url);
+        }
     }
 
     /* -------------------------------------------------------------- */
@@ -799,12 +814,12 @@ export class Player {
 
         const about = document.getElementById('book-about-content');
         if (about) {
-            const description = firstValue(metadata.description);
-            const notes = firstValue(metadata.notes);
-            about.innerHTML = description || notes
-                ? `${description ? `<div class="rich-text">${sanitizeRichText(description)}</div>` : ''}
-                   ${notes ? `<div class="rich-text mt-3 text-gray-400">${sanitizeRichText(notes)}</div>` : ''}`
-                : '<p class="text-sm md:text-base text-gray-500">No additional information available</p>';
+            const descriptions = asList(metadata.description);
+            const notes = asList(metadata.notes);
+            about.innerHTML = descriptions.length || notes.length
+                ? `${descriptions.map(text => `<div class="rich-text">${sanitizeRichText(text)}</div>`).join('')}
+                   ${notes.map(text => `<div class="rich-text mt-3 text-gray-400">${sanitizeRichText(text)}</div>`).join('')}`
+                : '<p class="text-sm md:text-base text-gray-400">No additional information available</p>';
         }
     }
 

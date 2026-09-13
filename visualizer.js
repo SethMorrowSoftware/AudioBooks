@@ -75,6 +75,11 @@ export class Visualizer {
             this.resizeCanvas();
             window.addEventListener('resize', this.handleResize);
             document.addEventListener('visibilitychange', this.handleVisibility);
+            // All audio flows through the context once attached; if the OS
+            // interrupts it while the element is still playing, bring it back.
+            context.addEventListener('statechange', () => {
+                if (context.state !== 'running' && context.state !== 'closed' && !audioElement.paused) this.resume();
+            });
             this.isInitialized = true;
             this.drawFrame();
             if (!audioElement.paused) this.setActive(true);
@@ -105,9 +110,13 @@ export class Visualizer {
         this.gradient.addColorStop(1, '#3b82f6');
     }
 
-    /** Resume a context the browser suspended (e.g. after an interruption). Never blocks the caller. */
+    /**
+     * Resume a context that is not running: 'suspended', or WebKit's
+     * non-standard 'interrupted' after a phone call / screen lock. Never
+     * blocks the caller.
+     */
     resume() {
-        if (this.audioContext && this.audioContext.state === 'suspended') {
+        if (this.audioContext && this.audioContext.state !== 'running' && this.audioContext.state !== 'closed') {
             this.audioContext.resume().catch(error => console.warn('Could not resume audio context:', error));
         }
     }

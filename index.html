@@ -101,7 +101,7 @@
                 type="search"
                 id="searchQuery"
                 name="searchQuery"
-                class="w-full pl-12 pr-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 placeholder-gray-500 focus:outline-none focus:border-sky-500/50 transition-all"
+                class="w-full pl-12 pr-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 placeholder-gray-400 focus:outline-none focus:border-sky-500/50 transition-all"
                 placeholder="Search by title, author, or keyword..."
                 autocomplete="off"
               >
@@ -112,7 +112,7 @@
           <div class="lg:w-72">
             <label for="categorySelector" class="sr-only">Category</label>
             <select id="categorySelector" name="category"
-                    class="category-select w-full px-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 focus:outline-none focus:border-sky-500/50 transition-all cursor-pointer appearance-none">
+                    class="category-select w-full px-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 focus:border-sky-500/50 transition-all cursor-pointer appearance-none">
               <option value="AllLibriVox" selected>All Audiobooks</option>
             </select>
           </div>
@@ -160,11 +160,11 @@
             <span class="text-xs text-gray-400 hidden sm:inline" id="yearLabel" title="Year the recording was published on Archive.org">Year:</span>
             <label for="yearFrom" class="sr-only">Year from</label>
             <input type="number" id="yearFrom" name="yearFrom" min="1000" inputmode="numeric" placeholder="From" title="Recording year from"
-                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
+                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 placeholder-gray-400 focus:border-sky-500/50">
             <span class="text-gray-600" aria-hidden="true">-</span>
             <label for="yearTo" class="sr-only">Year to</label>
             <input type="number" id="yearTo" name="yearTo" min="1000" inputmode="numeric" placeholder="To" title="Recording year to"
-                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
+                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 placeholder-gray-400 focus:border-sky-500/50">
           </div>
         </div>
       </form>

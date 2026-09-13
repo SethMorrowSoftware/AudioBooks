@@ -58,7 +58,7 @@
           </div>
         </div>
         <p class="text-base md:text-lg text-gray-300 font-semibold">Loading audiobook player...</p>
-        <p class="text-sm text-gray-500 mt-2">Preparing your listening experience</p>
+        <p class="text-sm text-gray-400 mt-2">Preparing your listening experience</p>
       </div>
 
       <!-- Player Interface -->
@@ -103,7 +103,7 @@
         <div class="space-y-3">
           <div class="flex items-center gap-3 md:gap-4">
             <span id="currentTime" class="text-sm md:text-base font-mono font-bold text-gray-300 w-16 md:w-20 text-right tabular-nums">0:00</span>
-            <div class="relative flex-1 group">
+            <div class="relative flex-1 group py-3">
               <div class="h-2 md:h-3 bg-gray-800/50 rounded-full overflow-hidden backdrop-blur-sm border border-gray-700/30">
                 <div id="bufferBar" class="absolute h-full bg-gray-700/60 progress-bar" style="width: 0%"></div>
                 <div id="progressBar" class="absolute h-full bg-gradient-to-r from-sky-600 to-cyan-600 progress-bar shadow-lg" style="width: 0%"></div>
@@ -188,7 +188,7 @@
             <button type="button" id="loopButton"
                     class="control-btn order-last sm:order-none p-3 md:p-4 text-gray-400 hover:text-white rounded-xl hover:bg-gray-800/50 transition-all"
                     title="Repeat: off"
-                    aria-label="Repeat" aria-pressed="false" data-mode="none">
+                    aria-label="Repeat: off" aria-pressed="false" data-mode="none">
               <svg class="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -199,13 +199,13 @@
           <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6 w-full max-w-2xl">
 
             <!-- Volume Control -->
-            <div class="flex items-center gap-3 flex-1 min-w-[12rem] max-w-xs">
+            <div id="volumeGroup" class="flex items-center gap-3 flex-1 min-w-[12rem] max-w-xs">
               <button type="button" id="muteButton" class="control-btn p-2 text-gray-400 hover:text-white flex-shrink-0" aria-label="Mute" aria-pressed="false" title="Mute (M)">
                 <svg id="volumeIcon" class="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                 </svg>
               </button>
-              <div class="relative flex-1">
+              <div class="relative flex-1 py-2.5">
                 <div class="h-2 md:h-2.5 bg-gray-800/50 rounded-full overflow-hidden border border-gray-700/30">
                   <div id="volumeBar" class="h-full bg-gradient-to-r from-sky-600 to-cyan-600" style="width: 100%"></div>
                 </div>
@@ -222,7 +222,7 @@
             <!-- Playback Speed -->
             <div class="flex items-center gap-2" role="group" aria-label="Playback speed">
               <span class="text-xs text-gray-400 font-semibold uppercase hidden md:inline">Speed:</span>
-              <div class="flex gap-1 bg-gray-900/50 p-1 rounded-lg border border-gray-700/50 flex-wrap justify-center">
+              <div class="grid grid-cols-3 sm:flex gap-1 bg-gray-900/50 p-1 rounded-lg border border-gray-700/50">
                 <button type="button" class="speed-btn" data-speed="0.75" aria-pressed="false">0.75×</button>
                 <button type="button" class="speed-btn active" data-speed="1" aria-pressed="true">1×</button>
                 <button type="button" class="speed-btn" data-speed="1.25" aria-pressed="false">1.25×</button>
@@ -298,14 +298,14 @@
 
     <!-- Keyboard Shortcuts -->
     <details class="glass-morphism-light rounded-2xl p-6 text-center text-sm animate-fade-in-up" style="animation-delay: 0.3s;">
-      <summary class="cursor-pointer font-bold text-sky-400 hover:text-sky-300 transition-colors flex items-center justify-center gap-2">
+      <summary class="cursor-pointer font-bold text-sky-400 hover:text-sky-300 transition-colors flex items-center justify-center gap-2 pl-7">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
         </svg>
         <span>Keyboard Shortcuts</span>
       </summary>
       <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-left">
-        <div class="flex items-center gap-2"><kbd>Space</kbd><span class="text-gray-400">Play / Pause</span></div>
+        <div class="flex items-center gap-2"><kbd>Space</kbd><kbd>K</kbd><span class="text-gray-400">Play / Pause</span></div>
         <div class="flex items-center gap-2"><kbd>←/→</kbd><span class="text-gray-400">Skip 5s</span></div>
         <div class="flex items-center gap-2"><kbd>J/L</kbd><span class="text-gray-400">Back 15s / Forward 30s</span></div>
         <div class="flex items-center gap-2"><kbd>M</kbd><span class="text-gray-400">Mute</span></div>

@@ -71,8 +71,32 @@ Evidence tags: **[repro]** reproduced in a headless Chromium run against the rea
 
 ## Verification
 
-- `npm test` syntax-checks every module and runs the Node unit tests for the pure modules (`archive.js`, `utils.js`, `storage.js`, `categoryConfig.js`): 31 tests.
+- `npm test` syntax-checks every module and runs the Node unit tests for the pure modules (`archive.js`, `utils.js`, `storage.js`, `categoryConfig.js`): 38 tests.
 - A headless Chromium harness (kept outside the repo) drives both pages with Archive.org mocked, including an XSS probe, a 5-chapter item with derivatives, a failing page load, blocked storage and a 390px viewport. Its before/after results back the [repro] tags above.
+
+## Independent review of the fixes
+
+A second multi-agent pass reviewed the complete diff against the original code from six angles (player runtime, search flow and helpers, security, accessibility/HTML/CSS, cross-browser robustness, feature parity) and produced 34 merged findings; a skeptical verifier then re-read the code for each one. Every finding is resolved:
+
+| # | Sev. | Area | Finding | Status |
+|---|------|------|---------|--------|
+| 50 | High | search.js | Infinite-scroll pages were built from the live form, so typing (without submitting) or switching category before scrolling mixed two queries in one grid. [repro] | Fixed: appended pages reuse the submitted query; harness checks it |
+| 51 | High | search.js | An appended page with zero results while `numFound` was still larger re-armed the sentinel immediately: an unbounded request loop. [read] | Fixed: a short or empty page ends the list |
+| 52 | High | player.js | Any key or tap on the seek slider that did not change its value left the "seeking" flag set, freezing the progress bar for the rest of the chapter. [repro] | Fixed: only seek keys arm it; pointer release, blur, keyup and chapter changes clear it |
+| 53 | Med | player.js | `<button role="listitem">` replaced the button role for assistive technology. [repro] | Fixed: `<ol>` of `<li><button>` |
+| 54 | Med | player.js | After a chapter failed to load, Play, Space and the chapter row did nothing. [read] | Fixed: Play reloads the failed source |
+| 55 | Med | main.js | `pagehide` tore the player down, so a back/forward-cache restore returned a dead page. [read] | Fixed: unload only saves progress |
+| 56 | Med | storage.js | Memory-first reads let two open tabs overwrite each other's positions. [test] | Fixed: memory only backs failed writes; two-tab test added |
+| 57 | Med | player.js | Volume slider snapped back to 100% on iOS, where media volume is not settable. [read] | Fixed: UI follows the chosen value; slider hidden where volume cannot be set |
+| 58 | Med | visualizer.js | WebKit's `interrupted` AudioContext state was never resumed, leaving playback silent after a call or screen lock. [read] | Fixed: resume on any non-running state and on state changes while playing |
+| 59 | Med | player.html | Seek and volume sliders had an 8px hit target and no visible focus ring (they are transparent overlays). [repro] | Fixed: padded wrappers, ring drawn on the visible track |
+| 60 | Med | index.html | `focus:outline-none` on the select and year inputs hid the keyboard focus ring. [repro] | Fixed |
+| 61 | Med | search.js | "Continue Listening" listed books with no saved position, including finished ones. [read] | Fixed: only books with a position, newest first |
+| 62 | Med | archive.js | Dangling operators (`Title - Subtitle`, `austen -`, `a &&`, `AND AND`, `()`) still reached Archive.org; a leading NOT was stripped (inverting the query); Advanced Search lost range/fuzzy/boost syntax. [test] | Fixed with tests |
+| 63 | Low | archive.js | Timeouts were retried with backoff (48s of spinner); retry delays ignored cancellation. [test] | Fixed |
+| 64 | Low | main.js | Referrer check was a string prefix match; autoplay depended on a referrer being sent at all. [read] | Fixed: origin comparison, and library links carry `autoplay=1` |
+| 65 | Low | player.js | Previous while paused stayed paused but Next started playing; mute at volume 0 needed two clicks; elapsed label flickered while scrubbing; Repeat's accessible name did not say which mode; share fallback never showed the link; multi-valued descriptions were truncated to the first entry; random-book guard released before navigation. [read] | Fixed |
+| 66 | Low | index.html, player.html, styles.css | Remaining low-contrast gray-500 text; the chevron's auto margin broke `justify-between` summaries; reduced-motion kept animation delays (cards invisible until the delay); print styles were overridden by utility classes; 2x speed wrapped alone on phones; K missing from the shortcut panel; no way to load more without IntersectionObserver; CSP could restrict inline styles to attributes. [read] | Fixed |
 
 ## Independent audit workflow
 
@@ -89,6 +113,5 @@ A nine-dimension multi-agent audit (player state, search flow, security, accessi
 
 ## Still to do
 
-1. Independent adversarial review of the full diff, then fix whatever it finds.
-2. Verify O1 and O2 against the live Archive.org API from a machine with network access, and spot-check a few real items' file lists against `selectAudioFiles`.
-3. Optional follow-ups not started: sleep timer, chapter bookmarks, offline caching of chapters.
+1. Verify O1 and O2 against the live Archive.org API from a machine with network access, and spot-check a few real items' file lists against `selectAudioFiles` (this sandbox cannot reach archive.org).
+2. Optional follow-ups not started: sleep timer, chapter bookmarks, offline caching of chapters, ESLint + CI (O4).

@@ -789,7 +789,7 @@ body {
 
 .playlist-duration {
   flex-shrink: 0;
-  color: var(--text-dimmed);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
 }
@@ -858,6 +858,15 @@ body {
 #playlistContainer {
   overflow-x: hidden;
   list-style: none;
+}
+
+/* The range inputs are invisible overlays on the drawn bars; their wrappers
+   carry vertical padding so the inputs (inset: 0) get a finger-sized hit
+   area, and the focus ring is drawn on the visible track. */
+.relative:has(> #trackProgress:focus-visible) > div,
+.relative:has(> #volumeControl:focus-visible) > div {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
 }
 
 .playlist-row {
@@ -1172,7 +1181,8 @@ kbd {
 
 details > summary {
   list-style: none;
-  gap: var(--space-3);
+  position: relative;
+  padding-right: 1.75em;
 }
 
 details > summary::-webkit-details-marker {
@@ -1181,22 +1191,20 @@ details > summary::-webkit-details-marker {
 
 details > summary::after {
   content: '';
-  flex-shrink: 0;
+  position: absolute;
+  right: 0.35em;
+  top: 50%;
   width: 0.55em;
   height: 0.55em;
-  margin-left: auto;
-  padding-left: 0;
-  position: relative;
-  left: -0.25em;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
-  transform: rotate(45deg) translateY(-0.15em);
+  transform: translateY(-70%) rotate(45deg);
   transition: transform var(--transition-fast);
   opacity: 0.7;
 }
 
 details[open] > summary::after {
-  transform: rotate(-135deg) translateY(-0.1em);
+  transform: translateY(-30%) rotate(-135deg);
 }
 
 /* ================================================================
@@ -1222,6 +1230,7 @@ select:focus-visible {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
@@ -1237,11 +1246,27 @@ select:focus-visible {
 
 /* Print Styles */
 @media print {
-  body {
-    background: white;
-    color: black;
+  body,
+  body * {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
-  
+
+  body {
+    background: #fff !important;
+  }
+
+  header,
+  #loadMore,
+  #toastContainer,
+  .skip-link,
+  .book-overlay,
+  .waveform-container {
+    display: none !important;
+  }
+
   .book-card {
     break-inside: avoid;
   }

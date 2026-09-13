@@ -199,11 +199,31 @@ export function showPlayerError(message, { onRetry } = {}) {
  * Copy text to the clipboard; resolves to true on success.
  */
 export async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (error) {
+            console.warn('Clipboard API failed:', error);
+        }
+    }
+    // Non-secure origins and older browsers: fall back to a selection copy.
     try {
-        await navigator.clipboard.writeText(text);
-        return true;
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        area.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        area.setSelectionRange(0, text.length); // iOS Safari needs an explicit range
+        const ok = document.execCommand && document.execCommand('copy');
+        area.remove();
+        return !!ok;
     } catch (error) {
-        console.error('Copy failed:', error);
+        console.warn('Fallback copy failed:', error);
         return false;
     }
 }
