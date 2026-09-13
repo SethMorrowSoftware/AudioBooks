@@ -52,7 +52,9 @@ function isUnfilteredBrowse(params) {
  * Run a search. `append` loads the next page under the existing results.
  */
 export async function searchAudiobooks(page = 1, { append = false } = {}) {
-    const params = readSearchParams();
+    // Further pages must use the query behind the cards on screen, not
+    // whatever has been typed or selected since.
+    const params = append && state.lastParams ? state.lastParams : readSearchParams();
     const config = getCategoryConfig(params.category);
     const requestId = ++state.requestId;
 

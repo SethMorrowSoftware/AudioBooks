@@ -57,33 +57,48 @@ export function isValidIdentifier(identifier) {
  * parse error: drop characters that only carry Lucene syntax, and remove
  * quotes/parentheses entirely when they are unbalanced.
  */
+function isBalanced(text, open, close) {
+    let depth = 0;
+    for (const ch of text) {
+        if (ch === open) depth++;
+        else if (ch === close && --depth < 0) return false;
+    }
+    return depth === 0;
+}
+
 export function sanitizeUserQuery(raw, { allowFieldSyntax = false } = {}) {
     let q = String(raw ?? '').trim();
     if (!q) return '';
 
-    q = q.replace(/[\\{}[\]^~/]/g, ' ');
-    // "Dracula: Chapter 1" would otherwise be parsed as a query on a field
-    // named Dracula. Only the advanced mode keeps field syntax.
-    if (!allowFieldSyntax) q = q.replace(/:/g, ' ');
+    q = q.replace(/[\\/]/g, ' ');
+    if (!allowFieldSyntax) {
+        // Plain searches: no field syntax ("Dracula: Chapter 1" would query a
+        // field named Dracula), no ranges/fuzzy/boost, and operator characters
+        // only when attached to a term ("Title - Subtitle" must not exclude a term).
+        q = q.replace(/[{}[\]^~:]/g, ' ');
+        q = q.replace(/(^|\s)[+\-!]+(?=\s|$)/g, ' ');
+        q = q.replace(/&&|\|\|/g, ' ');
+    } else {
+        if (!isBalanced(q, '[', ']')) q = q.replace(/[[\]]/g, ' ');
+        if (!isBalanced(q, '{', '}')) q = q.replace(/[{}]/g, ' ');
+    }
 
     const quoteCount = (q.match(/"/g) || []).length;
     if (quoteCount % 2 === 1) q = q.replace(/"/g, ' ');
+    if (!isBalanced(q, '(', ')')) q = q.replace(/[()]/g, ' ');
 
-    let depth = 0;
-    let balanced = true;
-    for (const ch of q) {
-        if (ch === '(') depth++;
-        else if (ch === ')') {
-            depth--;
-            if (depth < 0) { balanced = false; break; }
-        }
-    }
-    if (!balanced || depth !== 0) q = q.replace(/[()]/g, ' ');
-
-    q = q.replace(/\s+/g, ' ').trim();
-    // Leading/trailing boolean operators are parse errors. Lucene operators are
-    // upper-case only, so "Pride and" is left alone.
-    q = q.replace(/^(?:AND|OR|NOT)\s+/, '').replace(/\s+(?:AND|OR|NOT)$/, '').trim();
+    // Empty groups and dangling boolean operators are parse errors. Lucene
+    // operators are upper-case only, so "Pride and" is left alone; a leading
+    // NOT is legitimate because the text is wrapped after the collection scope.
+    let previous;
+    do {
+        previous = q;
+        q = q.replace(/\(\s*\)/g, ' ');
+        q = q.replace(/\b(?:AND|OR|NOT)(?:\s+(?:AND|OR|NOT))+\b/g, run => run.split(/\s+/).pop());
+        q = q.replace(/^(?:AND|OR)\s+/, '').replace(/\s+(?:AND|OR|NOT)$/, '');
+        q = q.replace(/\(\s*(?:AND|OR)\s+/g, '(').replace(/\s+(?:AND|OR|NOT)\s*\)/g, ')');
+        q = q.replace(/\s+/g, ' ').trim();
+    } while (q !== previous);
     if (/^(?:AND|OR|NOT)$/.test(q)) q = '';
     return q;
 }
@@ -206,12 +221,29 @@ function abortError() {
     return typeof DOMException !== 'undefined' ? new DOMException('Aborted', 'AbortError') : namedError('AbortError', 'Aborted');
 }
 
-/** Transient failures worth retrying: network, timeout, 429 and 5xx. */
+/**
+ * Transient failures worth retrying: network errors, unreadable bodies, 429
+ * and 5xx. A timeout is not retried: after a full timeout the service is
+ * evidently slow and the user should see that instead of a longer spinner.
+ */
 export function isRetryableError(error) {
     if (!error) return false;
     if (error.name === 'AbortError') return false;
     if (error.name === 'HttpError') return error.status === 429 || error.status >= 500;
-    return error.name === 'NetworkError' || error.name === 'TimeoutError' || error.name === 'ParseError';
+    return error.name === 'NetworkError' || error.name === 'ParseError';
+}
+
+function abortableSleep(ms, signal) {
+    return new Promise(resolve => {
+        if (signal && signal.aborted) return resolve();
+        const timer = setTimeout(done, ms);
+        function done() {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', done);
+            resolve();
+        }
+        if (signal) signal.addEventListener('abort', done, { once: true });
+    });
 }
 
 /** A short user-facing explanation for a failed request. */
@@ -232,7 +264,7 @@ export function describeFetchError(error) {
  * Errors carry a `name` of AbortError (caller cancelled), TimeoutError,
  * NetworkError, HttpError (with `status`) or ParseError.
  */
-export async function fetchJSON(url, { signal, attempts = 3, timeoutMs = 15000, retryDelayMs = 1000, fetchImpl = globalThis.fetch, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+export async function fetchJSON(url, { signal, attempts = 3, timeoutMs = 15000, retryDelayMs = 1000, fetchImpl = globalThis.fetch, sleep = abortableSleep } = {}) {
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt++) {
         if (signal && signal.aborted) throw abortError();
@@ -261,7 +293,7 @@ export async function fetchJSON(url, { signal, attempts = 3, timeoutMs = 15000, 
         } catch (error) {
             lastError = error;
             if (error.name === 'AbortError' || !isRetryableError(error) || attempt === attempts) throw error;
-            await sleep(retryDelayMs * attempt);
+            await sleep(retryDelayMs * attempt, signal);
         } finally {
             clearTimeout(timer);
             if (signal) signal.removeEventListener('abort', onAbort);

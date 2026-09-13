@@ -44,7 +44,10 @@ async function initializePlayerPage() {
 
         // Only try to auto-play when the listener arrived from our own library
         // (a click there counts as the gesture); a direct load just shows Play.
-        const fromLibrary = document.referrer.startsWith(window.location.origin) || params.get('autoplay') === '1';
+        let fromLibrary = params.get('autoplay') === '1';
+        try {
+            fromLibrary ||= !!document.referrer && new URL(document.referrer).origin === window.location.origin;
+        } catch { /* opaque referrer */ }
         if (fromLibrary) await player.play({ quiet: true });
     } catch (error) {
         console.error('Fatal error initializing player:', error);
@@ -89,11 +92,13 @@ if (document.readyState === 'loading') {
     start();
 }
 
-// pagehide fires on navigation and on tab close (and keeps bfcache working);
-// it is where the listening position gets its final save.
-window.addEventListener('pagehide', () => {
+// pagehide fires on navigation, tab close and when the page enters the
+// back/forward cache, so the position gets its final save here. The player is
+// deliberately left intact: a bfcache restore brings the page back as it was.
+function saveNow() {
     if (player) {
-        try { player.destroy(); } catch (e) { console.error('Error during cleanup:', e); }
-        player = null;
+        try { player.saveProgress(true); } catch (e) { console.error('Error saving progress:', e); }
     }
-});
+}
+window.addEventListener('pagehide', saveNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });

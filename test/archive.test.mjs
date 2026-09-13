@@ -26,6 +26,30 @@ test('identifiers are validated before being placed in URLs', () => {
     assert.equal(isValidIdentifier('<script>'), false);
 });
 
+test('sanitizeUserQuery removes dangling operators and empty groups', () => {
+    assert.equal(sanitizeUserQuery('Title - Subtitle'), 'Title Subtitle');
+    assert.equal(sanitizeUserQuery('austen -'), 'austen');
+    assert.equal(sanitizeUserQuery('+'), '');
+    assert.equal(sanitizeUserQuery('!'), '');
+    assert.equal(sanitizeUserQuery('a &&'), 'a');
+    assert.equal(sanitizeUserQuery('a || b'), 'a b');
+    assert.equal(sanitizeUserQuery('-austen'), '-austen');
+    assert.equal(sanitizeUserQuery('austen AND AND dickens'), 'austen AND dickens');
+    assert.equal(sanitizeUserQuery('(austen AND)'), '(austen)');
+    assert.equal(sanitizeUserQuery('()'), '');
+    assert.equal(sanitizeUserQuery('austen AND OR'), 'austen');
+    assert.equal(sanitizeUserQuery('NOT austen'), 'NOT austen');
+    assert.equal(sanitizeUserQuery('austen AND NOT dickens'), 'austen NOT dickens');
+    assert.equal(sanitizeUserQuery('AND OR NOT'), '');
+});
+
+test('sanitizeUserQuery keeps ranges and field syntax in advanced mode', () => {
+    assert.equal(sanitizeUserQuery('year:[1800 TO 1850]', { allowFieldSyntax: true }), 'year:[1800 TO 1850]');
+    assert.equal(sanitizeUserQuery('year:[1800 TO', { allowFieldSyntax: true }), 'year: 1800 TO');
+    assert.equal(sanitizeUserQuery('title:emma~2 dickens^3', { allowFieldSyntax: true }), 'title:emma~2 dickens^3');
+    assert.equal(buildSearchQuery({ category: 'Custom', query: 'year:[1800 TO 1850]' }), 'collection:(librivoxaudio) AND (year:[1800 TO 1850])');
+});
+
 test('sanitizeUserQuery balances quotes and parentheses and strips Lucene syntax', () => {
     assert.equal(sanitizeUserQuery('austen (('), 'austen');
     assert.equal(sanitizeUserQuery('"Pride and Prejudice'), 'Pride and Prejudice');
@@ -235,10 +259,21 @@ test('fetchJSON classifies network failures, timeouts and bad JSON', async () =>
 
     const slow = fakeFetch(['hang']);
     await assert.rejects(fetchJSON('u', { fetchImpl: slow.impl, sleep: noSleep, attempts: 2, timeoutMs: 5 }), err => err.name === 'TimeoutError');
-    assert.equal(slow.calls(), 2);
+    assert.equal(slow.calls(), 1, 'a timeout is not retried');
 
     const bad = fakeFetch(['bad-json']);
     await assert.rejects(fetchJSON('u', { fetchImpl: bad.impl, sleep: noSleep, attempts: 2 }), err => err.name === 'ParseError');
+});
+
+test('fetchJSON stops waiting for a retry delay when the caller aborts', async () => {
+    const f = fakeFetch([503, 503, 503]);
+    const controller = new AbortController();
+    const pending = fetchJSON('u', { fetchImpl: f.impl, signal: controller.signal, retryDelayMs: 10000 });
+    setTimeout(() => controller.abort(), 5);
+    const started = Date.now();
+    await assert.rejects(pending, err => err.name === 'AbortError');
+    assert.ok(Date.now() - started < 2000, 'did not sit out the full retry delay');
+    assert.equal(f.calls(), 1);
 });
 
 test('fetchJSON honours the caller abort signal without retrying', async () => {
@@ -261,7 +296,8 @@ test('isRetryableError and describeFetchError', () => {
     assert.equal(isRetryableError(new HttpError('x', 429)), true);
     assert.equal(isRetryableError(new HttpError('x', 400)), false);
     assert.equal(isRetryableError(Object.assign(new Error(), { name: 'AbortError' })), false);
-    assert.equal(isRetryableError(Object.assign(new Error(), { name: 'TimeoutError' })), true);
+    assert.equal(isRetryableError(Object.assign(new Error(), { name: 'TimeoutError' })), false);
+    assert.equal(isRetryableError(Object.assign(new Error(), { name: 'NetworkError' })), true);
     assert.match(describeFetchError(Object.assign(new Error(), { name: 'TimeoutError' })), /too long/);
     assert.match(describeFetchError(new HttpError('x', 429)), /rate-limiting/);
     assert.match(describeFetchError(new HttpError('x', 502)), /HTTP 502/);

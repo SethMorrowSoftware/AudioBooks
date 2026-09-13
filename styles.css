@@ -857,6 +857,11 @@ body {
 
 #playlistContainer {
   overflow-x: hidden;
+  list-style: none;
+}
+
+.playlist-row {
+  display: block;
 }
 
 .playlist-item:hover {

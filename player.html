@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0f1419">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://archive.org https://*.archive.org; media-src https://archive.org https://*.archive.org; connect-src https://archive.org https://*.archive.org; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src https://fonts.gstatic.com; img-src 'self' data: https://archive.org https://*.archive.org; media-src https://archive.org https://*.archive.org; connect-src https://archive.org https://*.archive.org; object-src 'none'; base-uri 'self'; form-action 'self'">
   <link rel="preconnect" href="https://archive.org" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -78,10 +78,9 @@
             <span id="playlistInfo" class="text-xs sm:text-sm text-gray-300 font-semibold bg-gray-800/50 px-3 sm:px-4 py-2 rounded-full text-right"></span>
           </summary>
 
-          <div id="playlistContainer"
-               class="max-h-56 md:max-h-80 overflow-y-auto bg-gray-900/40 rounded-xl border border-gray-700/50 backdrop-blur-sm p-1"
-               role="list"
-               aria-label="Chapter list"></div>
+          <ol id="playlistContainer"
+              class="max-h-56 md:max-h-80 overflow-y-auto bg-gray-900/40 rounded-xl border border-gray-700/50 backdrop-blur-sm p-1 list-none m-0"
+              aria-label="Chapter list"></ol>
         </details>
 
         <!-- Waveform Visualization -->

@@ -220,11 +220,17 @@ export class Player {
         el.share?.addEventListener('click', () => this.share());
 
         if (el.progress) {
-            const beginSeek = () => { this.isSeeking = true; };
-            el.progress.addEventListener('pointerdown', beginSeek);
-            el.progress.addEventListener('keydown', beginSeek);
-            el.progress.addEventListener('input', () => this.previewSeek());
+            const SEEK_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+            const endSeek = () => { this.isSeeking = false; };
+            el.progress.addEventListener('pointerdown', () => { this.isSeeking = true; });
+            el.progress.addEventListener('keydown', event => { if (SEEK_KEYS.has(event.key)) this.isSeeking = true; });
+            el.progress.addEventListener('input', () => { this.isSeeking = true; this.previewSeek(); });
             el.progress.addEventListener('change', () => this.commitSeek());
+            // A press that never changed the value (tap on the thumb, cancelled
+            // touch, Tab away) must not leave the progress bar frozen.
+            for (const type of ['pointerup', 'pointercancel', 'blur']) {
+                el.progress.addEventListener(type, () => setTimeout(endSeek, 0));
+            }
         }
         if (el.volume) {
             el.volume.addEventListener('input', () => this.setVolume(Number(el.volume.value) / 100, { persist: false }));
@@ -320,6 +326,11 @@ export class Player {
 
     async play({ quiet = false } = {}) {
         if (!this.audio) return false;
+        if (this.audio.error) {
+            // The element is stuck on a failed source; reload it instead of
+            // letting play() reject silently.
+            return this.retryCurrentTrack();
+        }
         this.finished = false;
         this.updateState('loading');
         this.ensureVisualizer();
@@ -418,7 +429,8 @@ export class Player {
     }
 
     retryCurrentTrack() {
-        this.loadTrack(this.currentIndex, { autoplay: true });
+        document.querySelectorAll('.player-error').forEach(el => el.remove());
+        return this.loadTrack(this.currentIndex, { autoplay: true });
     }
 
     handleTrackEnd() {
@@ -488,13 +500,13 @@ export class Player {
     }
 
     updateProgress() {
-        if (!this.audio) return;
+        if (!this.audio || this.isSeeking) return;
         const duration = this.audio.duration;
         const current = this.audio.currentTime;
         if (this.elements.currentTime) this.elements.currentTime.textContent = formatTime(current);
         if (!Number.isFinite(duration) || duration <= 0) return;
         const pct = Math.min(100, (current / duration) * 100);
-        if (!this.isSeeking) {
+        {
             if (this.elements.progress) {
                 this.elements.progress.value = pct;
                 this.elements.progress.setAttribute('aria-valuetext', `${formatTime(current)} of ${formatTime(duration)}`);
@@ -570,7 +582,7 @@ export class Player {
 
     toggleMute() {
         if (!this.audio) return;
-        if (this.audio.muted) {
+        if (this.audio.muted || this.volume === 0) {
             this.audio.muted = false;
             if (this.volume === 0) this.setVolume(this.lastVolume > 0 ? this.lastVolume : 1);
         } else {
@@ -715,12 +727,14 @@ export class Player {
         const container = this.elements.playlist;
         if (!container) return;
         container.innerHTML = this.playlist.map((track, i) => `
-            <button type="button" class="playlist-item" role="listitem" data-track-index="${i}" aria-current="false">
-                <span class="playlist-number">${i + 1}.</span>
-                <span class="playlist-title">${escapeHTML(track.title)}</span>
-                <span class="playlist-indicator" aria-hidden="true"><i></i><i></i><i></i></span>
-                ${track.length ? `<span class="playlist-duration">${formatTime(track.length)}</span>` : ''}
-            </button>
+            <li class="playlist-row">
+                <button type="button" class="playlist-item" data-track-index="${i}" aria-current="false">
+                    <span class="playlist-number">${i + 1}.</span>
+                    <span class="playlist-title">${escapeHTML(track.title)}</span>
+                    <span class="playlist-indicator" aria-hidden="true"><i></i><i></i><i></i></span>
+                    ${track.length ? `<span class="playlist-duration">${formatTime(track.length)}</span>` : ''}
+                </button>
+            </li>
         `).join('');
         this.updatePlaylistInfo();
         this.highlightCurrentTrack();
@@ -730,7 +744,7 @@ export class Player {
         const container = this.elements.playlist;
         if (!container) return;
         const changed = this.lastHighlighted !== this.currentIndex;
-        for (const item of container.children) {
+        for (const item of container.querySelectorAll('.playlist-item')) {
             const index = parseInt(item.dataset.trackIndex, 10);
             const isCurrent = index === this.currentIndex;
             item.classList.toggle('active', isCurrent);

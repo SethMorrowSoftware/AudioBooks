@@ -36,8 +36,9 @@ function getBackend() {
 }
 
 function readRaw(key) {
-    // Values written in this session win, so a failed persistent write
-    // (quota, transient SecurityError) never hands back stale data.
+    // The memory map only holds values whose persistent write failed (no
+    // storage, quota, transient SecurityError); everything else is re-read
+    // from localStorage so other tabs' writes are seen.
     if (memory.has(key)) return memory.get(key);
     const store = getBackend();
     try {
@@ -47,14 +48,17 @@ function readRaw(key) {
 }
 
 function writeRaw(key, value) {
-    memory.set(key, value);
     const store = getBackend();
-    if (!store) return;
-    try {
-        store.setItem(key, value);
-    } catch (e) {
-        console.warn('Could not persist', key, e);
+    if (store) {
+        try {
+            store.setItem(key, value);
+            memory.delete(key);
+            return;
+        } catch (e) {
+            console.warn('Could not persist', key, e);
+        }
     }
+    memory.set(key, value);
 }
 
 function removeRaw(key) {
