@@ -5,8 +5,13 @@
   "description": "Static web app for streaming free LibriVox audiobooks from Archive.org",
   "type": "module",
   "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i src/tailwind.css -o tailwind.css --minify",
+    "watch:css": "tailwindcss -c tailwind.config.js -i src/tailwind.css -o tailwind.css --watch",
     "test": "node --test 'test/*.test.mjs'",
     "serve": "python3 -m http.server 8080"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
 }

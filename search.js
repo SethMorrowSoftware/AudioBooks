@@ -1,466 +1,524 @@
 /**
- * search.js - Audiobook-focused search with covers and grid layout
+ * search.js - Library page: search, filters, infinite scroll, random pick
  */
 
-import { showLoading, hideLoading, showToast } from './utils.js';
-import { getCategoryConfig } from './categoryConfig.js';
+import { showLoading, hideLoading, showToast, escapeHTML } from './utils.js';
+import { getCategoryConfig, getAllCategories, isSearchMode } from './categoryConfig.js';
 import { storage } from './storage.js';
+import {
+    buildSearchQuery, buildSearchUrl, parseSearchResponse, coverUrl,
+    asList, joinValues, firstValue, isValidIdentifier
+} from './archive.js';
 
-// Search state
-let currentPage = 1;
-const resultsPerPage = 24;
-let totalResults = 0;
-let currentView = 'grid';
-let currentResults = [];
-let activeFilters = new Set();
-let lastSearchParams = null;
-let isLoadingMore = false;
+const RESULTS_PER_PAGE = 24;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+const REQUEST_TIMEOUT_MS = 15000;
+const RANDOM_POOL_PAGES = 10;
+const RANDOM_POOL_ROWS = 50;
 
-// Retry configuration
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
+const COVER_PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect fill="#374151" width="200" height="300"/>' +
+    '<text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="48" font-family="system-ui">📖</text>' +
+    '<text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-size="12" font-family="system-ui">No Cover</text></svg>'
+);
+
+const state = {
+    page: 1,
+    total: 0,
+    results: [],
+    filters: new Set(),
+    loadingMore: false,
+    requestId: 0,
+    controller: null,
+    lastParams: null,
+    randomInFlight: false
+};
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchWithRetry(url, retries = MAX_RETRIES) {
-    for (let i = 0; i < retries; i++) {
+function isRetryable(error) {
+    if (error.name === 'AbortError') return false;
+    if (error.status) return error.status === 429 || error.status >= 500;
+    return true; // network failure
+}
+
+/**
+ * Fetch JSON with a timeout and retries for transient failures only.
+ * @param {string} url
+ * @param {AbortSignal} signal caller's abort signal (stale request cancellation)
+ */
+export async function fetchJSON(url, { signal, attempts = MAX_ATTEMPTS } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        if (signal) {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: controller.signal });
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const error = new Error(`Archive.org responded with HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
             return await response.json();
         } catch (error) {
-            console.warn(`Fetch attempt ${i + 1} failed:`, error.message);
-            if (i === retries - 1) {
-                throw error;
-            }
-            await sleep(RETRY_DELAY * (i + 1));
+            if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            lastError = error;
+            if (!isRetryable(error) || attempt === attempts) throw error;
+            console.warn(`Fetch attempt ${attempt} failed:`, error.message);
+            await sleep(RETRY_DELAY_MS * attempt);
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', onAbort);
         }
     }
+    throw lastError;
 }
 
-export async function searchAudiobooks(page = 1, append = false) {
-    const searchQueryInput = document.getElementById('searchQuery');
-    const yearFromInput = document.getElementById('yearFrom');
-    const yearToInput = document.getElementById('yearTo');
-    const categorySelector = document.getElementById('categorySelector');
+function readSearchParams() {
+    const query = document.getElementById('searchQuery')?.value.trim() ?? '';
+    const yearFrom = document.getElementById('yearFrom')?.value ?? '';
+    const yearTo = document.getElementById('yearTo')?.value ?? '';
+    const category = document.getElementById('categorySelector')?.value || 'AllLibriVox';
+    return { query, yearFrom, yearTo, category, filters: [...state.filters] };
+}
 
-    const query = searchQueryInput ? searchQueryInput.value.trim() : '';
-    const yearFrom = yearFromInput ? yearFromInput.value : '';
-    const yearTo = yearToInput ? yearToInput.value : '';
-    const category = categorySelector ? categorySelector.value : 'AllLibriVox';
+function isUnfilteredBrowse(params) {
+    return params.category === 'AllLibriVox' && !params.query && !params.yearFrom && !params.yearTo && params.filters.length === 0;
+}
 
-    lastSearchParams = { query, yearFrom, yearTo, category, page };
+/**
+ * Run a search. `append` loads the next page under the existing results.
+ */
+export async function searchAudiobooks(page = 1, { append = false } = {}) {
+    const params = readSearchParams();
+    const config = getCategoryConfig(params.category);
+    const requestId = ++state.requestId;
+
+    if (state.controller) state.controller.abort();
+    const controller = new AbortController();
+    state.controller = controller;
 
     if (!append) {
+        state.lastParams = { ...params };
         showLoading();
+        setLoadMoreState('idle');
     }
-    currentPage = page;
+    state.loadingMore = append;
+    document.getElementById('results')?.setAttribute('aria-busy', 'true');
+
+    const lucene = buildSearchQuery({ category: params.category, config, query: params.query, yearFrom: params.yearFrom, yearTo: params.yearTo, filters: params.filters });
+    document.title = `${config.title} - LibriVox Audiobooks`;
 
     try {
-        const config = getCategoryConfig(category);
-        let baseQuery = config.query || 'collection:(librivoxaudio)';
-        const categoryTitle = config.title;
+        const data = await fetchJSON(buildSearchUrl(lucene, { rows: RESULTS_PER_PAGE, page }), { signal: controller.signal });
+        if (requestId !== state.requestId) return; // a newer search superseded this one
 
-        // Handle different search types
-        if (category === 'Author_Search' && query) {
-            baseQuery = `collection:(librivoxaudio) AND creator:(${query})`;
-        } else if (category === 'Title_Search' && query) {
-            baseQuery = `collection:(librivoxaudio) AND title:(${query})`;
-        } else if (category === 'Custom' && query) {
-            baseQuery = `collection:(librivoxaudio) AND (${query})`;
-        } else if (baseQuery && query) {
-            baseQuery += ` AND (${query})`;
-        }
-
-        // Year filtering
-        if (yearFrom || yearTo) {
-            const fromYear = yearFrom || '1700';
-            const toYear = yearTo || '2024';
-            baseQuery += ` AND year:[${fromYear} TO ${toYear}]`;
-        } else if (config.yearRange) {
-            baseQuery += ` AND year:[${config.yearRange[0]} TO ${config.yearRange[1]}]`;
-        }
-
-        // Apply special filters
-        activeFilters.forEach(filter => {
-            if (filter === 'solo') {
-                baseQuery += ' AND subject:(solo)';
-            } else if (filter === 'complete') {
-                baseQuery += ' AND subject:(complete)';
-            } else if (filter === 'english') {
-                baseQuery += ' AND language:(English)';
-            }
-        });
-
-        document.title = `${categoryTitle} - LibriVox Audiobooks`;
-
-        const url = `https://archive.org/advancedsearch.php?` +
-            `q=${encodeURIComponent(baseQuery)}` +
-            `&fl[]=identifier,title,year,creator,date,language,runtime,description,subject` +
-            `&sort[]=downloads+desc&output=json` +
-            `&rows=${resultsPerPage}&page=${page}`;
-
-        const data = await fetchWithRetry(url);
+        const { docs, numFound } = parseSearchResponse(data);
+        state.page = page;
+        state.total = numFound;
+        state.results = append ? state.results.concat(docs) : docs;
 
         hideLoading();
-        const resultsDiv = document.getElementById('results');
-
-        if (!data.response || !data.response.docs || data.response.docs.length === 0) {
-            if (resultsDiv && !append) {
-                resultsDiv.innerHTML = `
-                    <div class="col-span-full text-center py-16 animate-fade-in">
-                        <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-800 rounded-full mb-6">
-                            <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
-                        </div>
-                        <h3 class="text-xl font-bold text-gray-300 mb-2">No audiobooks found</h3>
-                        <p class="text-gray-500">Try adjusting your search criteria or filters</p>
-                    </div>`;
-            }
-            updatePagination(0);
-            isLoadingMore = false;
-            return;
-        }
-
-        totalResults = data.response.numFound;
-
-        if (append) {
-            currentResults = [...currentResults, ...data.response.docs];
-        } else {
-            currentResults = data.response.docs;
-        }
-
-        if (resultsDiv) {
-            updateResultsDisplay(append);
-        }
-
-        updatePagination();
-        isLoadingMore = false;
-
+        renderResults(docs, append);
+        updateResultsInfo();
+        if (isUnfilteredBrowse(params)) updateBookCount(numFound);
     } catch (error) {
+        if (error.name === 'AbortError' || requestId !== state.requestId) return;
         console.error('Search error:', error);
         hideLoading();
-        isLoadingMore = false;
-        handleSearchError(error);
+        if (append) {
+            setLoadMoreState('error');
+            showToast('Could not load more audiobooks. Scroll or tap Retry to try again.', 'error');
+        } else {
+            renderSearchError(error);
+        }
+    } finally {
+        if (requestId === state.requestId) {
+            state.loadingMore = false;
+            document.getElementById('results')?.setAttribute('aria-busy', 'false');
+        }
     }
 }
 
-function handleSearchError(error) {
+function renderResults(docs, append) {
     const resultsDiv = document.getElementById('results');
     if (!resultsDiv) return;
 
-    const errorMessage = error.message || 'Unknown error';
-    const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network');
-
-    resultsDiv.innerHTML = `
-        <div class="col-span-full text-center py-16 animate-fade-in">
-            <div class="inline-flex items-center justify-center w-20 h-20 bg-red-900 bg-opacity-30 rounded-full mb-6">
-                <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-            </div>
-            <h3 class="text-xl font-bold text-red-400 mb-2">
-                ${isNetworkError ? 'Connection Problem' : 'Search Error'}
-            </h3>
-            <p class="text-gray-400 mb-6 max-w-md mx-auto">
-                ${isNetworkError
-                    ? 'Unable to reach Archive.org. Please check your connection.'
-                    : 'An error occurred while searching. This may be temporary.'}
-            </p>
-            <button
-                onclick="window.retryLastSearch()"
-                class="px-6 py-3 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-semibold rounded-xl transition-all transform hover:scale-105 shadow-lg">
-                Try Again
-            </button>
-        </div>`;
-}
-
-window.retryLastSearch = function() {
-    if (lastSearchParams) {
-        const { query, yearFrom, yearTo, category, page } = lastSearchParams;
-
-        const searchQueryInput = document.getElementById('searchQuery');
-        const yearFromInput = document.getElementById('yearFrom');
-        const yearToInput = document.getElementById('yearTo');
-        const categorySelector = document.getElementById('categorySelector');
-
-        if (searchQueryInput) searchQueryInput.value = query;
-        if (yearFromInput) yearFromInput.value = yearFrom;
-        if (yearToInput) yearToInput.value = yearTo;
-        if (categorySelector) categorySelector.value = category;
-
-        showToast('Retrying search...', 'info');
-        searchAudiobooks(page);
+    if (!append && docs.length === 0) {
+        resultsDiv.innerHTML = `
+            <div class="col-span-full text-center py-16 animate-fade-in">
+                <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-800 rounded-full mb-6">
+                    <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-300 mb-2">No audiobooks found</h3>
+                <p class="text-gray-500">Try adjusting your search criteria or filters</p>
+            </div>`;
+        return;
     }
-};
 
-function updateResultsDisplay(append = false) {
-    const resultsDiv = document.getElementById('results');
-    if (!resultsDiv) return;
-
-    // Always use grid view for books
-    resultsDiv.className = 'books-grid';
-
-    const newHTML = currentResults.map((book, index) => {
-        const card = createBookCard(book);
-        const delay = append ? 0 : index * 0.03;
-        return `<div class="animate-fade-in" style="animation-delay: ${delay}s">${card}</div>`;
+    const html = docs.map((book, index) => {
+        const delay = append ? 0 : Math.min(index, 12) * 0.03;
+        return createBookCard(book, delay);
     }).join('');
 
     if (append) {
-        resultsDiv.insertAdjacentHTML('beforeend', newHTML);
+        resultsDiv.insertAdjacentHTML('beforeend', html);
     } else {
-        resultsDiv.innerHTML = newHTML;
+        resultsDiv.innerHTML = html;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 }
 
-function createBookCard(book) {
-    const author = book.creator || 'Unknown Author';
-    const title = book.title || 'Untitled Audiobook';
-    const year = book.year || book.date || '';
-    const language = book.language || 'English';
+function bookYear(book) {
+    const year = firstValue(book.year);
+    if (/^\d{4}$/.test(year)) return year;
+    const date = firstValue(book.date);
+    return /^\d{4}/.test(date) ? date.slice(0, 4) : '';
+}
 
-    // Get cover image from Archive.org
-    const coverUrl = `https://archive.org/services/img/${book.identifier}`;
+export function createBookCard(book, delay = 0) {
+    const identifier = firstValue(book.identifier);
+    if (!isValidIdentifier(identifier)) return '';
 
-    // Extract runtime if available
-    const runtime = book.runtime || '';
-
-    // Get subjects for genre tags
-    const subjects = Array.isArray(book.subject) ? book.subject :
-                    typeof book.subject === 'string' ? [book.subject] : [];
-    const genreTags = subjects
+    const title = firstValue(book.title, 'Untitled Audiobook');
+    const author = joinValues(book.creator) || 'Unknown Author';
+    const year = bookYear(book);
+    const language = joinValues(book.language);
+    const runtime = firstValue(book.runtime);
+    const genreTags = asList(book.subject)
+        .filter(s => s.length < 20)
         .slice(0, 2)
-        .filter(s => s && s.length < 20)
         .map(s => s.charAt(0).toUpperCase() + s.slice(1));
 
+    const href = `player.html?id=${encodeURIComponent(identifier)}`;
+    const label = `${title} by ${author}`;
+
     return `
-        <div class="book-card" onclick="openPlayerPage('${book.identifier}')">
+        <a class="book-card animate-fade-in" href="${href}" style="animation-delay: ${delay}s" aria-label="${escapeHTML(label)}">
             <div class="book-cover-wrapper">
-                <img src="${coverUrl}"
-                     alt="${title}"
+                <img src="${coverUrl(identifier)}"
+                     alt=""
                      class="book-cover"
+                     width="200" height="300"
                      loading="lazy"
-                     onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 200 300\\'%3E%3Crect fill=\\'%23374151\\' width=\\'200\\' height=\\'300\\'/%3E%3Ctext x=\\'50%25\\' y=\\'45%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%239ca3af\\' font-size=\\'48\\' font-family=\\'system-ui\\'%3E%F0%9F%93%96%3C/text%3E%3Ctext x=\\'50%25\\' y=\\'60%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%236b7280\\' font-size=\\'12\\' font-family=\\'system-ui\\'%3ENo Cover%3C/text%3E%3C/svg%3E'">
-                <div class="book-overlay">
+                     decoding="async">
+                <div class="book-overlay" aria-hidden="true">
                     <div class="play-button">
                         <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
                             <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
                         </svg>
                     </div>
                     <div class="overlay-info">
-                        <div class="overlay-author">${author}</div>
+                        <div class="overlay-author">${escapeHTML(author)}</div>
                         ${runtime ? `<div class="overlay-runtime">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            ${runtime}
+                            ${escapeHTML(runtime)}
                         </div>` : ''}
                     </div>
                 </div>
             </div>
             <div class="book-info">
-                <h3 class="book-title" title="${title}">${title}</h3>
-                <p class="book-author">${author}</p>
+                <h3 class="book-title" title="${escapeHTML(title)}">${escapeHTML(title)}</h3>
+                <p class="book-author">${escapeHTML(author)}</p>
                 <div class="book-meta">
-                    ${year ? `<span class="meta-badge year-badge">${year}</span>` : ''}
-                    ${language !== 'English' ? `<span class="meta-badge lang-badge">${language}</span>` : ''}
-                    ${genreTags.length > 0 ? genreTags.map(tag =>
-                        `<span class="meta-badge genre-badge">${tag}</span>`
-                    ).join('') : ''}
+                    ${year ? `<span class="meta-badge year-badge">${escapeHTML(year)}</span>` : ''}
+                    ${language && language !== 'English' ? `<span class="meta-badge lang-badge">${escapeHTML(language)}</span>` : ''}
+                    ${genreTags.map(tag => `<span class="meta-badge genre-badge">${escapeHTML(tag)}</span>`).join('')}
                 </div>
             </div>
-        </div>
+        </a>
     `;
 }
 
-function updatePagination(customTotal = null) {
-    const total = customTotal !== null ? customTotal : totalResults;
-    const totalPages = Math.ceil(total / resultsPerPage);
-    const pageInfo = document.getElementById('pageInfo');
-    const prevPage = document.getElementById('prevPage');
-    const nextPage = document.getElementById('nextPage');
+function renderSearchError(error) {
+    const resultsDiv = document.getElementById('results');
+    if (!resultsDiv) return;
 
-    if (pageInfo) {
-        if (total === 0) {
-            pageInfo.textContent = '';
-        } else {
-            const showing = Math.min(currentPage * resultsPerPage, total);
-            pageInfo.textContent = `Showing ${showing} of ${total.toLocaleString()} audiobooks`;
-        }
+    const message = error.message || 'Unknown error';
+    const rejected = /rejected the query/i.test(message);
+    const network = !rejected && !error.status;
+
+    let heading = 'Search Error';
+    let detail = 'An error occurred while searching. This may be temporary.';
+    if (rejected) {
+        heading = 'Search Not Understood';
+        detail = 'Archive.org could not parse that search. Try simpler words, or wrap exact phrases in quotes.';
+    } else if (network) {
+        heading = 'Connection Problem';
+        detail = 'Unable to reach Archive.org. Please check your connection.';
     }
-    if (prevPage) prevPage.disabled = currentPage === 1;
-    if (nextPage) nextPage.disabled = currentPage === totalPages || totalPages === 0;
+
+    resultsDiv.innerHTML = `
+        <div class="col-span-full text-center py-16 animate-fade-in" role="alert">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-red-900 bg-opacity-30 rounded-full mb-6">
+                <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </div>
+            <h3 class="text-xl font-bold text-red-400 mb-2">${heading}</h3>
+            <p class="text-gray-400 mb-6 max-w-md mx-auto">${detail}</p>
+            <button type="button" id="retrySearch"
+                class="px-6 py-3 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-semibold rounded-xl transition-all shadow-lg">
+                Try Again
+            </button>
+        </div>`;
+
+    resultsDiv.querySelector('#retrySearch')?.addEventListener('click', () => retryLastSearch());
 }
 
-export function changePage(delta) {
-    searchAudiobooks(currentPage + delta);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+export function retryLastSearch() {
+    const params = state.lastParams;
+    if (params) {
+        const set = (id, value) => { const el = document.getElementById(id); if (el) el.value = value; };
+        set('searchQuery', params.query);
+        set('yearFrom', params.yearFrom);
+        set('yearTo', params.yearTo);
+        set('categorySelector', params.category);
+    }
+    showToast('Retrying search...', 'info', 1500);
+    searchAudiobooks(1);
 }
 
-export function openPlayerPage(identifier) {
-    if (!identifier) {
-        showToast('Invalid audiobook identifier', 'error');
+function updateResultsInfo() {
+    const pageInfo = document.getElementById('pageInfo');
+    if (!pageInfo) return;
+    if (state.total === 0) {
+        pageInfo.textContent = '';
         return;
     }
-    window.location.href = `player.html?id=${identifier}`;
+    const showing = Math.min(state.results.length, state.total);
+    pageInfo.textContent = `Showing ${showing.toLocaleString()} of ${state.total.toLocaleString()} audiobooks`;
+    setLoadMoreState(state.results.length >= state.total ? 'done' : 'idle');
 }
 
-// Infinite scroll setup
+function updateBookCount(total) {
+    const pill = document.getElementById('bookCount');
+    if (pill && total > 0) pill.textContent = `${total.toLocaleString()} Books`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Infinite scroll                                                    */
+/* ------------------------------------------------------------------ */
+
+function setLoadMoreState(mode) {
+    const sentinel = document.getElementById('loadMore');
+    if (!sentinel) return;
+    sentinel.dataset.state = mode;
+    sentinel.querySelector('.load-more-spinner')?.classList.toggle('hidden', mode !== 'loading');
+    sentinel.querySelector('.load-more-retry')?.classList.toggle('hidden', mode !== 'error');
+    sentinel.querySelector('.load-more-done')?.classList.toggle('hidden', mode !== 'done');
+}
+
+function loadNextPage() {
+    if (state.loadingMore || state.results.length === 0 || state.results.length >= state.total) return;
+    setLoadMoreState('loading');
+    searchAudiobooks(state.page + 1, { append: true });
+}
+
 function setupInfiniteScroll() {
-    let observer;
+    const sentinel = document.getElementById('loadMore');
+    if (!sentinel || !('IntersectionObserver' in window)) return;
 
-    const sentinel = document.createElement('div');
-    sentinel.id = 'scroll-sentinel';
-    sentinel.className = 'h-10';
+    sentinel.querySelector('.load-more-retry')?.addEventListener('click', loadNextPage);
 
-    const resultsDiv = document.getElementById('results');
-    if (resultsDiv && resultsDiv.parentElement) {
-        resultsDiv.parentElement.appendChild(sentinel);
+    const observer = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting) && sentinel.dataset.state !== 'error') loadNextPage();
+    }, { rootMargin: '400px 0px' });
+    observer.observe(sentinel);
+}
+
+/* ------------------------------------------------------------------ */
+/* Random book                                                        */
+/* ------------------------------------------------------------------ */
+
+export async function pickRandomBook() {
+    if (state.randomInFlight) return;
+    state.randomInFlight = true;
+    const button = document.getElementById('randomBook');
+    if (button) button.disabled = true;
+    const toast = showToast('Finding a book...', 'info', 0);
+
+    try {
+        const params = readSearchParams();
+        const category = isSearchMode(params.category) ? 'AllLibriVox' : params.category;
+        const lucene = buildSearchQuery({ category, config: getCategoryConfig(category), filters: params.filters });
+
+        let page = Math.floor(Math.random() * RANDOM_POOL_PAGES) + 1;
+        let { docs } = parseSearchResponse(await fetchJSON(buildSearchUrl(lucene, { rows: RANDOM_POOL_ROWS, page, fields: ['identifier', 'title', 'creator'] })));
+        if (docs.length === 0 && page !== 1) {
+            ({ docs } = parseSearchResponse(await fetchJSON(buildSearchUrl(lucene, { rows: RANDOM_POOL_ROWS, page: 1, fields: ['identifier', 'title', 'creator'] }))));
+        }
+        const candidates = docs.filter(doc => isValidIdentifier(firstValue(doc.identifier)));
+        toast.dismiss();
+        if (candidates.length === 0) {
+            showToast('No books found, try another category', 'warning');
+            return;
+        }
+        const book = candidates[Math.floor(Math.random() * candidates.length)];
+        showToast(firstValue(book.title, 'Opening audiobook...'), 'success', 1200);
+        setTimeout(() => {
+            window.location.href = `player.html?id=${encodeURIComponent(firstValue(book.identifier))}`;
+        }, 500);
+    } catch (error) {
+        console.error('Random book error:', error);
+        toast.dismiss();
+        showToast('Could not pick a random book right now', 'error');
+    } finally {
+        state.randomInFlight = false;
+        if (button) button.disabled = false;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Continue listening                                                 */
+/* ------------------------------------------------------------------ */
+
+function renderContinueListening() {
+    const section = document.getElementById('continueListening');
+    const list = document.getElementById('continueListeningList');
+    if (!section || !list) return;
+
+    const entries = storage.getRecentlyViewed()
+        .map(entry => ({ ...entry, progress: storage.getProgress(entry.identifier) }))
+        .filter(entry => isValidIdentifier(entry.identifier))
+        .slice(0, 6);
+
+    if (entries.length === 0) {
+        section.classList.add('hidden');
+        return;
     }
 
-    observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting && !isLoadingMore && currentResults.length < totalResults) {
-                isLoadingMore = true;
-                const nextPage = currentPage + 1;
-                const totalPages = Math.ceil(totalResults / resultsPerPage);
+    list.innerHTML = entries.map(entry => {
+        const track = entry.progress ? entry.progress.track + 1 : 1;
+        const href = `player.html?id=${encodeURIComponent(entry.identifier)}${entry.progress ? `&track=${track}` : ''}`;
+        const meta = entry.progress
+            ? `Chapter ${track}${entry.progress.chapters ? ` of ${entry.progress.chapters}` : ''}`
+            : 'Start listening';
+        return `
+            <a class="continue-chip" href="${href}">
+                <img class="continue-cover" src="${coverUrl(entry.identifier)}" alt="" width="40" height="60" loading="lazy" decoding="async">
+                <span class="continue-text">
+                    <span class="continue-title">${escapeHTML(entry.title)}</span>
+                    <span class="continue-meta">${escapeHTML(entry.author ? `${entry.author} · ${meta}` : meta)}</span>
+                </span>
+            </a>`;
+    }).join('');
+    section.classList.remove('hidden');
+}
 
-                if (nextPage <= totalPages) {
-                    showToast('Loading more...', 'info', 1000);
-                    searchAudiobooks(nextPage, true);
-                }
-            }
-        });
-    }, {
-        rootMargin: '200px'
-    });
+/* ------------------------------------------------------------------ */
+/* Page setup                                                         */
+/* ------------------------------------------------------------------ */
 
-    observer.observe(sentinel);
+function populateCategorySelect(select) {
+    select.innerHTML = getAllCategories().map(group => `
+        <optgroup label="${escapeHTML(group.group)}">
+            ${group.options.map(option => `<option value="${escapeHTML(option.id)}">${escapeHTML(option.title)}</option>`).join('')}
+        </optgroup>`).join('');
+}
 
-    return () => {
-        if (observer) observer.disconnect();
-    };
+function applyCategoryToSearchBox(categoryId, searchQuery) {
+    if (!searchQuery) return;
+    const config = getCategoryConfig(categoryId);
+    searchQuery.placeholder = (isSearchMode(categoryId) && config.placeholder) || 'Search by title, author, or keyword...';
+}
+
+function isTypingTarget(target) {
+    return !!target && (target.matches('input, select, textarea, [contenteditable="true"]'));
 }
 
 export function initSearchPage() {
-    console.log('Initializing audiobook search page...');
-
-    const searchButton = document.getElementById('searchButton');
+    const form = document.getElementById('searchForm');
     const searchQuery = document.getElementById('searchQuery');
     const yearFrom = document.getElementById('yearFrom');
     const yearTo = document.getElementById('yearTo');
     const categorySelector = document.getElementById('categorySelector');
-    const prevPage = document.getElementById('prevPage');
-    const nextPage = document.getElementById('nextPage');
+    const randomButton = document.getElementById('randomBook');
+    const resultsDiv = document.getElementById('results');
 
-    // Set default year range
-    if (yearFrom && yearTo) {
-        const savedCategory = storage.getSelectedCategory();
-        const config = getCategoryConfig(savedCategory);
-        if (config && config.yearRange) {
-            yearFrom.value = config.yearRange[0];
-            yearTo.value = config.yearRange[1];
-        }
-    }
+    const currentYear = new Date().getFullYear();
+    [yearFrom, yearTo].forEach(input => { if (input) input.max = String(currentYear); });
 
-    if (searchButton) {
-        searchButton.addEventListener('click', (e) => {
-            e.preventDefault();
+    if (categorySelector) {
+        populateCategorySelect(categorySelector);
+        const saved = storage.getSelectedCategory();
+        if (categorySelector.querySelector(`option[value="${CSS.escape(saved)}"]`)) categorySelector.value = saved;
+        applyCategoryToSearchBox(categorySelector.value, searchQuery);
+
+        categorySelector.addEventListener('change', () => {
+            storage.setSelectedCategory(categorySelector.value);
+            applyCategoryToSearchBox(categorySelector.value, searchQuery);
+            if (isSearchMode(categorySelector.value) && searchQuery) {
+                searchQuery.value = '';
+                searchQuery.focus();
+                if (state.results.length === 0) searchAudiobooks(1);
+                return;
+            }
             searchAudiobooks(1);
         });
     }
 
-    if (searchQuery) {
-        searchQuery.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                searchAudiobooks(1);
-            }
+    if (form) {
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            searchAudiobooks(1);
         });
     }
 
     if (yearFrom) yearFrom.addEventListener('change', () => searchAudiobooks(1));
     if (yearTo) yearTo.addEventListener('change', () => searchAudiobooks(1));
 
-    if (categorySelector) {
-        const savedCategory = storage.getSelectedCategory();
-        if (savedCategory && categorySelector.querySelector(`option[value="${savedCategory}"]`)) {
-            categorySelector.value = savedCategory;
-        }
-
-        categorySelector.addEventListener('change', function() {
-            storage.setSelectedCategory(this.value);
-            currentPage = 1;
-
-            const config = getCategoryConfig(this.value);
-            if (yearFrom && yearTo && config && config.yearRange) {
-                yearFrom.value = config.yearRange[0];
-                yearTo.value = config.yearRange[1];
-            }
-
-            // Clear search for special search types
-            if (this.value === 'Author_Search' || this.value === 'Title_Search' || this.value === 'Custom') {
-                if (searchQuery) {
-                    searchQuery.value = '';
-                    searchQuery.placeholder = config.placeholder || 'Enter search...';
-                }
-            }
-
+    document.querySelectorAll('[data-filter]').forEach(button => {
+        button.setAttribute('aria-pressed', 'false');
+        button.addEventListener('click', () => {
+            const filter = button.dataset.filter;
+            const active = !state.filters.has(filter);
+            if (active) state.filters.add(filter); else state.filters.delete(filter);
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
             searchAudiobooks(1);
         });
+    });
+
+    if (randomButton) randomButton.addEventListener('click', event => { event.preventDefault(); pickRandomBook(); });
+
+    if (resultsDiv) {
+        // Cover images that fail to load fall back to a placeholder.
+        resultsDiv.addEventListener('error', event => {
+            const img = event.target;
+            if (img instanceof HTMLImageElement && !img.dataset.fallback) {
+                img.dataset.fallback = '1';
+                img.src = COVER_PLACEHOLDER;
+            }
+        }, true);
     }
 
-    const filterButtons = document.querySelectorAll('[data-filter]');
-    filterButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const filter = this.dataset.filter;
-
-            if (activeFilters.has(filter)) {
-                activeFilters.delete(filter);
-                this.classList.remove('active');
-            } else {
-                activeFilters.add(filter);
-                this.classList.add('active');
-            }
-
-            searchAudiobooks(1);
-        });
-    });
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        if (e.target.matches('input, select, textarea')) return;
-
-        switch(e.key.toLowerCase()) {
-            case '/':
-                e.preventDefault();
-                if (searchQuery) searchQuery.focus();
-                break;
-            case 'r':
-                e.preventDefault();
-                const randomBtn = document.getElementById('randomBook');
-                if (randomBtn) randomBtn.click();
-                break;
+    document.addEventListener('keydown', event => {
+        if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+        if (isTypingTarget(event.target)) return;
+        if (event.key === '/') {
+            event.preventDefault();
+            searchQuery?.focus();
+        } else if (event.key === 'r' || event.key === 'R') {
+            event.preventDefault();
+            pickRandomBook();
         }
     });
 
-    if (prevPage) prevPage.addEventListener('click', () => changePage(-1));
-    if (nextPage) nextPage.addEventListener('click', () => changePage(1));
-
-    // Setup infinite scroll
+    renderContinueListening();
     setupInfiniteScroll();
-
-    console.log('Running initial search...');
     searchAudiobooks(1);
 }
-
-window.openPlayerPage = openPlayerPage;
-window.searchAudiobooks = searchAudiobooks;
-window.changePage = changePage;
