@@ -1167,6 +1167,7 @@ kbd {
 
 details > summary {
   list-style: none;
+  gap: var(--space-3);
 }
 
 details > summary::-webkit-details-marker {
@@ -1178,7 +1179,10 @@ details > summary::after {
   flex-shrink: 0;
   width: 0.55em;
   height: 0.55em;
-  margin-left: var(--space-3);
+  margin-left: auto;
+  padding-left: 0;
+  position: relative;
+  left: -0.25em;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   transform: rotate(45deg) translateY(-0.15em);

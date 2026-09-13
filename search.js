@@ -140,10 +140,11 @@ function renderResults(docs, append) {
         resultsDiv.insertAdjacentHTML('beforeend', html);
     } else {
         resultsDiv.innerHTML = html;
-        if (window.scrollY > resultsDiv.offsetTop) {
-            window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-        }
+        if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
     }
+    // On very tall viewports the sentinel may never leave the viewport, so the
+    // observer would not fire again; check once the new cards are laid out.
+    requestAnimationFrame(loadNextPageIfSentinelVisible);
 }
 
 function bookYear(book) {
@@ -290,6 +291,12 @@ function loadNextPage() {
     if (state.loadingMore || state.freshInFlight || state.results.length === 0 || state.results.length >= state.total) return;
     setLoadMoreState('loading');
     searchAudiobooks(state.page + 1, { append: true });
+}
+
+function loadNextPageIfSentinelVisible() {
+    const sentinel = document.getElementById('loadMore');
+    if (!sentinel || sentinel.dataset.state === 'error') return;
+    if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadNextPage();
 }
 
 function setupInfiniteScroll() {
