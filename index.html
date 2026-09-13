@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f1419">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src https://fonts.gstatic.com; img-src 'self' data: https://archive.org https://*.archive.org; media-src https://archive.org https://*.archive.org; connect-src https://archive.org https://*.archive.org; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <link rel="preconnect" href="https://archive.org" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   <title>LibriVox Audiobooks - Free Public Domain Audiobooks</title>
 
   <!-- Primary Meta Tags -->
-  <meta name="title" content="LibriVox Audiobooks - Stream Free Classic Literature">
   <meta name="description" content="Discover thousands of free audiobooks from LibriVox. Stream classic literature, philosophy, history, and more - all read by volunteers from around the world.">
-  <meta name="keywords" content="free audiobooks, librivox, public domain, classic literature, audio books, streaming, volunteers, philosophy, history">
   <meta name="author" content="LibriVox Audiobook Platform">
 
   <!-- Open Graph / Facebook -->
@@ -17,85 +21,41 @@
   <meta property="og:description" content="Explore thousands of free public domain audiobooks. Classic literature, history, philosophy, and more from LibriVox.">
 
   <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="LibriVox Audiobooks - Free Classic Literature">
   <meta name="twitter:description" content="Discover thousands of free public domain audiobooks from LibriVox.">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <!-- Favicon (inline, so no extra request and no 404) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253'/%3E%3C/svg%3E">
 
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="tailwind.css">
   <link rel="stylesheet" href="styles.css">
-
-  <style>
-    /* Minimal header styling */
-    .header-minimal {
-      background: linear-gradient(180deg, rgba(15, 20, 25, 0.98) 0%, rgba(15, 20, 25, 0.95) 100%);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(14, 165, 233, 0.1);
-    }
-
-    .logo-glow {
-      filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.4));
-    }
-
-    .search-container {
-      position: relative;
-    }
-
-    .search-container input:focus {
-      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.3),
-                  0 0 30px rgba(14, 165, 233, 0.15);
-    }
-
-    .category-select {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 1rem center;
-      background-size: 1.25rem;
-      padding-right: 3rem;
-    }
-
-    .filter-chip {
-      transition: all 0.2s ease;
-    }
-
-    .filter-chip.active {
-      background: linear-gradient(135deg, #0ea5e9, #06b6d4);
-      border-color: transparent;
-      color: white;
-      box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
-    }
-
-    .stats-pill {
-      background: rgba(14, 165, 233, 0.1);
-      border: 1px solid rgba(14, 165, 233, 0.2);
-    }
-  </style>
 </head>
 <body class="bg-[#0f1419] text-gray-100 min-h-screen">
 
-  <!-- Minimal Header -->
+  <a href="#results" class="skip-link">Skip to results</a>
+
+  <!-- Header -->
   <header class="header-minimal sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-4 py-4">
       <div class="flex items-center justify-between gap-6">
         <!-- Logo & Title -->
-        <div class="flex items-center gap-3 flex-shrink-0">
+        <a href="index.html" class="flex items-center gap-3 flex-shrink-0 text-inherit no-underline">
           <div class="logo-glow">
-            <svg class="w-8 h-8 md:w-10 md:h-10 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-8 h-8 md:w-10 md:h-10 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
             </svg>
           </div>
           <div>
             <h1 class="text-lg md:text-xl font-bold text-white tracking-tight">LibriVox</h1>
-            <p class="text-xs text-gray-500 hidden sm:block">Free Audiobooks</p>
+            <p class="text-xs text-gray-400 hidden sm:block">Free Audiobooks</p>
           </div>
-        </div>
+        </a>
 
         <!-- Stats Pills -->
         <div class="hidden md:flex items-center gap-3">
-          <div class="stats-pill px-3 py-1.5 rounded-full text-xs font-semibold text-sky-400">
-            15,000+ Books
+          <div id="bookCount" class="stats-pill px-3 py-1.5 rounded-full text-xs font-semibold text-sky-400">
+            Thousands of Books
           </div>
           <div class="stats-pill px-3 py-1.5 rounded-full text-xs font-semibold text-cyan-400">
             100% Free
@@ -107,10 +67,11 @@
 
         <!-- Quick Actions -->
         <div class="flex items-center gap-2">
-          <button id="randomBook"
-                  class="p-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 text-white hover:from-sky-500 hover:to-cyan-500 transition-all shadow-lg hover:shadow-sky-500/25"
-                  title="Discover Random Book">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button type="button" id="randomBook"
+                  class="p-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 text-white hover:from-sky-500 hover:to-cyan-500 transition-all shadow-lg hover:shadow-sky-500/25 disabled:opacity-60"
+                  title="Discover a random book (R)"
+                  aria-label="Discover a random book">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
             </svg>
           </button>
@@ -122,8 +83,8 @@
   <main class="max-w-7xl mx-auto px-4 py-6 md:py-8">
 
     <!-- Search & Filters Section -->
-    <section class="mb-8">
-      <form id="searchForm" class="space-y-4">
+    <section class="mb-8" aria-label="Search">
+      <form id="searchForm" class="space-y-4" role="search">
 
         <!-- Main Search Row -->
         <div class="flex flex-col lg:flex-row gap-3">
@@ -131,154 +92,132 @@
           <div class="search-container flex-1">
             <div class="relative">
               <div class="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
+              <label for="searchQuery" class="sr-only">Search audiobooks</label>
               <input
-                type="text"
+                type="search"
                 id="searchQuery"
                 name="searchQuery"
-                class="w-full pl-12 pr-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 placeholder-gray-500 focus:outline-none focus:border-sky-500/50 transition-all"
+                class="w-full pl-12 pr-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 placeholder-gray-400 focus:outline-none focus:border-sky-500/50 transition-all"
                 placeholder="Search by title, author, or keyword..."
                 autocomplete="off"
               >
             </div>
           </div>
 
-          <!-- Category Selector -->
+          <!-- Category Selector (options come from categoryConfig.js) -->
           <div class="lg:w-72">
+            <label for="categorySelector" class="sr-only">Category</label>
             <select id="categorySelector" name="category"
-                    class="category-select w-full px-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 focus:outline-none focus:border-sky-500/50 transition-all cursor-pointer appearance-none">
-              <optgroup label="Browse">
-                <option value="AllLibriVox" selected>All Audiobooks</option>
-                <option value="Author_Search">Search by Author</option>
-                <option value="Title_Search">Search by Title</option>
-              </optgroup>
-              <optgroup label="Fiction">
-                <option value="ClassicLiterature">Classic Literature</option>
-                <option value="Romance">Romance</option>
-                <option value="Mystery">Mystery & Detective</option>
-                <option value="ScienceFiction">Science Fiction</option>
-                <option value="Fantasy">Fantasy</option>
-                <option value="Adventure">Adventure</option>
-                <option value="Horror">Horror & Gothic</option>
-                <option value="ShortStories">Short Stories</option>
-                <option value="Humor">Humor & Satire</option>
-              </optgroup>
-              <optgroup label="Non-Fiction">
-                <option value="History">History</option>
-                <option value="Biography">Biography & Memoir</option>
-                <option value="Philosophy">Philosophy</option>
-                <option value="Science">Science & Nature</option>
-                <option value="Religion">Religion & Spirituality</option>
-                <option value="Travel">Travel & Exploration</option>
-                <option value="Essays">Essays & Letters</option>
-              </optgroup>
-              <optgroup label="Poetry & Drama">
-                <option value="Poetry">Poetry</option>
-                <option value="Drama">Drama & Plays</option>
-                <option value="Shakespeare">Shakespeare</option>
-              </optgroup>
-              <optgroup label="Children's">
-                <option value="Childrens">Children's Literature</option>
-                <option value="FairyTales">Fairy Tales & Folklore</option>
-              </optgroup>
-              <optgroup label="Popular Authors">
-                <option value="JaneAusten">Jane Austen</option>
-                <option value="CharlesDickens">Charles Dickens</option>
-                <option value="MarkTwain">Mark Twain</option>
-                <option value="ArthurConanDoyle">Arthur Conan Doyle</option>
-                <option value="EdgarAllanPoe">Edgar Allan Poe</option>
-                <option value="HGWells">H.G. Wells</option>
-                <option value="JulesVerne">Jules Verne</option>
-                <option value="OscarWilde">Oscar Wilde</option>
-              </optgroup>
-              <optgroup label="By Language">
-                <option value="French">French</option>
-                <option value="German">German</option>
-                <option value="Spanish">Spanish</option>
-                <option value="Italian">Italian</option>
-                <option value="Russian">Russian</option>
-              </optgroup>
+                    class="category-select w-full px-4 py-3.5 bg-gray-900/80 border border-gray-700/50 rounded-xl text-gray-100 focus:border-sky-500/50 transition-all cursor-pointer appearance-none">
+              <option value="AllLibriVox" selected>All Audiobooks</option>
             </select>
           </div>
 
           <!-- Search Button -->
           <button type="submit" id="searchButton"
                   class="px-6 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-sky-500/25 flex items-center justify-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <span class="hidden sm:inline">Search</span>
+            <span class="sr-only sm:hidden">Search</span>
           </button>
         </div>
 
         <!-- Filters Row -->
         <div class="flex flex-wrap items-center gap-3">
           <!-- Quick Filters -->
-          <div class="flex flex-wrap gap-2">
-            <button type="button" data-filter="solo"
+          <div class="flex flex-wrap gap-2" role="group" aria-label="Quick filters">
+            <button type="button" data-filter="solo" aria-pressed="false"
                     class="filter-chip px-4 py-2 bg-gray-800/60 hover:bg-gray-700/60 text-gray-300 rounded-full text-sm font-medium border border-gray-700/50 flex items-center gap-2">
-              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                 <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
               </svg>
               Solo Reader
             </button>
-            <button type="button" data-filter="complete"
+            <button type="button" data-filter="complete" aria-pressed="false"
                     class="filter-chip px-4 py-2 bg-gray-800/60 hover:bg-gray-700/60 text-gray-300 rounded-full text-sm font-medium border border-gray-700/50 flex items-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Complete Works
             </button>
-            <button type="button" data-filter="english"
+            <button type="button" data-filter="english" aria-pressed="false"
                     class="filter-chip px-4 py-2 bg-gray-800/60 hover:bg-gray-700/60 text-gray-300 rounded-full text-sm font-medium border border-gray-700/50 flex items-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10" />
               </svg>
               English Only
             </button>
           </div>
 
-          <!-- Year Range -->
+          <!-- Year Range (recording year on Archive.org) -->
           <div class="flex items-center gap-2 ml-auto">
-            <span class="text-xs text-gray-500 hidden sm:inline">Year:</span>
-            <input type="number" id="yearFrom" name="yearFrom" min="1700" max="2024" placeholder="From"
-                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
-            <span class="text-gray-600">-</span>
-            <input type="number" id="yearTo" name="yearTo" min="1700" max="2024" placeholder="To"
-                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-sky-500/50">
+            <span class="text-xs text-gray-400 hidden sm:inline" id="yearLabel" title="Year the recording was published on Archive.org">Year:</span>
+            <label for="yearFrom" class="sr-only">Year from</label>
+            <input type="number" id="yearFrom" name="yearFrom" min="1000" inputmode="numeric" placeholder="From" title="Recording year from"
+                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 placeholder-gray-400 focus:border-sky-500/50">
+            <span class="text-gray-600" aria-hidden="true">-</span>
+            <label for="yearTo" class="sr-only">Year to</label>
+            <input type="number" id="yearTo" name="yearTo" min="1000" inputmode="numeric" placeholder="To" title="Recording year to"
+                   class="w-20 px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-gray-100 placeholder-gray-400 focus:border-sky-500/50">
           </div>
         </div>
       </form>
     </section>
 
+    <!-- Continue Listening (rendered from saved progress; hidden when empty) -->
+    <section id="continueListening" class="mb-8 hidden" aria-labelledby="continueListeningHeading">
+      <h2 id="continueListeningHeading" class="text-lg md:text-xl font-bold text-white flex items-center gap-3 mb-4">
+        <span class="w-1 h-6 bg-gradient-to-b from-emerald-500 to-teal-500 rounded-full" aria-hidden="true"></span>
+        Continue Listening
+      </h2>
+      <div id="continueListeningList" class="continue-list"></div>
+    </section>
+
     <!-- Results Section -->
-    <section>
+    <section aria-labelledby="resultsHeading">
       <!-- Results Header -->
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-          <div class="w-1 h-6 bg-gradient-to-b from-sky-500 to-cyan-500 rounded-full"></div>
+      <div class="flex items-center justify-between mb-6 gap-4">
+        <h2 id="resultsHeading" class="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+          <span class="w-1 h-6 bg-gradient-to-b from-sky-500 to-cyan-500 rounded-full" aria-hidden="true"></span>
           Audiobooks
         </h2>
-        <div id="pageInfo" class="text-sm text-gray-500 font-medium"></div>
+        <div id="pageInfo" class="text-sm text-gray-400 font-medium text-right" aria-live="polite"></div>
       </div>
 
-      <!-- Loading Indicator -->
-      <div id="loading" class="hidden flex justify-center py-20">
-        <div class="flex flex-col items-center gap-4">
-          <div class="relative w-14 h-14">
-            <div class="absolute inset-0 rounded-full border-4 border-sky-600/30 border-t-sky-500 animate-spin"></div>
-            <div class="absolute inset-2 rounded-full border-4 border-cyan-600/30 border-t-cyan-500 animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+      <div class="results-area">
+        <!-- Loading Indicator (overlays the grid so nothing shifts) -->
+        <div id="loading" class="hidden justify-center pt-16" role="status">
+          <div class="flex flex-col items-center gap-4">
+            <div class="relative w-14 h-14" aria-hidden="true">
+              <div class="absolute inset-0 rounded-full border-4 border-sky-600/30 border-t-sky-500 animate-spin"></div>
+              <div class="absolute inset-2 rounded-full border-4 border-cyan-600/30 border-t-cyan-500 animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+            </div>
+            <p class="text-gray-300 font-medium">Loading audiobooks...</p>
           </div>
-          <p class="text-gray-400 font-medium">Loading audiobooks...</p>
+        </div>
+
+        <!-- Results Grid -->
+        <div id="results" class="books-grid" aria-busy="false">
+          <!-- Results will appear here -->
         </div>
       </div>
 
-      <!-- Results Grid -->
-      <div id="results" class="books-grid">
-        <!-- Results will appear here -->
+      <!-- Infinite scroll sentinel -->
+      <div id="loadMore" class="load-more" data-state="idle">
+        <div class="load-more-spinner hidden" role="status">
+          <span class="load-more-dot" aria-hidden="true"></span>
+          Loading more audiobooks...
+        </div>
+        <button type="button" class="load-more-retry hidden px-5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-sm font-semibold border border-gray-700 transition-colors">
+          Could not load more. Retry
+        </button>
+        <p class="load-more-done hidden text-sm text-gray-400">You have reached the end of the results.</p>
       </div>
     </section>
 
@@ -286,37 +225,37 @@
     <section class="mt-12">
       <details class="bg-gray-900/50 rounded-2xl border border-gray-800/50">
         <summary class="px-6 py-4 cursor-pointer flex items-center gap-3 text-gray-400 hover:text-white transition-colors">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span class="font-medium">Tips & Keyboard Shortcuts</span>
+          <span class="font-medium">Tips &amp; Keyboard Shortcuts</span>
         </summary>
         <div class="px-6 pb-6 pt-2 grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-gray-800/50 mt-2">
           <div>
-            <h4 class="text-sm font-semibold text-sky-400 mb-3">Quick Start</h4>
+            <h3 class="text-sm font-semibold text-sky-400 mb-3">Quick Start</h3>
             <ul class="text-sm text-gray-400 space-y-2">
               <li>Browse by genre, author, or language</li>
-              <li>Use "Solo Reader" for consistent narration</li>
-              <li>All audiobooks are completely free</li>
+              <li>Use "Solo Reader" for a single narrator throughout</li>
+              <li>Your place in each book is remembered on this device</li>
             </ul>
           </div>
           <div>
-            <h4 class="text-sm font-semibold text-cyan-400 mb-3">Search Tips</h4>
+            <h3 class="text-sm font-semibold text-cyan-400 mb-3">Search Tips</h3>
             <ul class="text-sm text-gray-400 space-y-2">
               <li>Use quotes for exact matches: "Pride and Prejudice"</li>
-              <li>Combine terms with AND/OR</li>
-              <li>Filter by publication year for specific eras</li>
+              <li>Combine terms with AND / OR (upper case)</li>
+              <li>The year filter uses the year the recording was published on Archive.org</li>
             </ul>
           </div>
           <div>
-            <h4 class="text-sm font-semibold text-emerald-400 mb-3">Keyboard Shortcuts</h4>
+            <h3 class="text-sm font-semibold text-emerald-400 mb-3">Keyboard Shortcuts</h3>
             <div class="text-sm text-gray-400 space-y-2">
               <div class="flex items-center gap-2">
-                <kbd class="px-2 py-1 bg-gray-800 rounded text-xs font-mono">/</kbd>
+                <kbd>/</kbd>
                 <span>Focus search</span>
               </div>
               <div class="flex items-center gap-2">
-                <kbd class="px-2 py-1 bg-gray-800 rounded text-xs font-mono">R</kbd>
+                <kbd>R</kbd>
                 <span>Random book</span>
               </div>
             </div>
@@ -329,109 +268,24 @@
   <!-- Footer -->
   <footer class="mt-16 py-8 border-t border-gray-800/50">
     <div class="max-w-7xl mx-auto px-4 text-center">
-      <p class="text-gray-500 text-sm">
+      <p class="text-gray-400 text-sm">
         Powered by <a href="https://librivox.org" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300 transition-colors">LibriVox</a> via <a href="https://archive.org" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300 transition-colors">Archive.org</a>
       </p>
-      <p class="text-gray-600 text-xs mt-2">Free public domain audiobooks read by volunteers worldwide</p>
+      <p class="text-gray-400 text-xs mt-2">Free public domain audiobooks read by volunteers worldwide</p>
     </div>
   </footer>
 
   <!-- Toast Container -->
-  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2" aria-live="polite"></div>
+
+  <noscript>
+    <div class="fixed inset-x-0 bottom-0 bg-red-900 text-white text-center p-4">
+      This app needs JavaScript to search and play audiobooks. You can browse LibriVox directly at
+      <a href="https://archive.org/details/librivoxaudio" class="underline">archive.org/details/librivoxaudio</a>.
+    </div>
+  </noscript>
 
   <!-- Scripts -->
   <script type="module" src="main.js"></script>
-
-  <!-- Random Book Functionality -->
-  <script>
-    window.addEventListener('DOMContentLoaded', function() {
-      const randomBtn = document.getElementById('randomBook');
-      if (randomBtn) {
-        randomBtn.addEventListener('click', async function(e) {
-          e.preventDefault();
-
-          const toast = document.createElement('div');
-          toast.className = 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium animate-slide-up';
-          toast.innerHTML = `
-            <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            <span>Finding a book...</span>
-          `;
-          document.body.appendChild(toast);
-
-          try {
-            const categorySelector = document.getElementById('categorySelector');
-            const category = categorySelector ? categorySelector.value : 'AllLibriVox';
-
-            let query = 'collection:(librivoxaudio)';
-            if (category !== 'AllLibriVox' && category !== 'Custom' && category !== 'Author_Search' && category !== 'Title_Search') {
-              const config = window.getCategoryConfig ? window.getCategoryConfig(category) : null;
-              if (config && config.query) {
-                query = config.query;
-              }
-            }
-
-            const randomPage = Math.floor(Math.random() * 20) + 1;
-
-            const response = await fetch(`https://archive.org/advancedsearch.php?` +
-              `q=${encodeURIComponent(query)}` +
-              `&fl[]=identifier,title,creator` +
-              `&sort[]=downloads+desc&output=json` +
-              `&rows=20&page=${randomPage}`);
-
-            const data = await response.json();
-
-            if (data.response && data.response.docs && data.response.docs.length > 0) {
-              const randomIndex = Math.floor(Math.random() * data.response.docs.length);
-              const book = data.response.docs[randomIndex];
-
-              toast.className = 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium animate-slide-up';
-              toast.innerHTML = `
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <span class="truncate max-w-xs">${book.title}</span>
-              `;
-
-              setTimeout(() => {
-                window.location.href = `player.html?id=${book.identifier}`;
-              }, 800);
-            } else {
-              toast.className = 'bg-gradient-to-r from-amber-600 to-orange-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium';
-              toast.innerHTML = `
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01" />
-                </svg>
-                <span>No books found, try another category</span>
-              `;
-              setTimeout(() => toast.remove(), 3000);
-            }
-          } catch (error) {
-            console.error('Random book error:', error);
-            toast.className = 'bg-gradient-to-r from-red-600 to-pink-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium';
-            toast.innerHTML = `
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span>Error loading book</span>
-            `;
-            setTimeout(() => toast.remove(), 3000);
-          }
-        });
-      }
-
-      // Keyboard shortcuts
-      document.addEventListener('keydown', (e) => {
-        if (e.target.matches('input, select, textarea')) return;
-
-        if (e.key === '/') {
-          e.preventDefault();
-          document.getElementById('searchQuery')?.focus();
-        } else if (e.key.toLowerCase() === 'r') {
-          e.preventDefault();
-          randomBtn?.click();
-        }
-      });
-    });
-  </script>
 </body>
 </html>

@@ -5,8 +5,7 @@ export const categoryConfig = {
     'AllLibriVox': {
         query: 'collection:(librivoxaudio)',
         title: 'All LibriVox Audiobooks',
-        customSearch: false,
-        yearRange: [1700, 2024]
+        customSearch: false
     },
 
     // === FICTION GENRES ===
@@ -186,19 +185,28 @@ export const categoryConfig = {
     }
 };
 
-// Get category configuration
+// Get category configuration (unknown ids fall back to the full collection)
 export function getCategoryConfig(categoryId) {
-    return categoryConfig[categoryId] || categoryConfig['AllLibriVox'];
+    return Object.prototype.hasOwnProperty.call(categoryConfig, categoryId)
+        ? categoryConfig[categoryId]
+        : categoryConfig['AllLibriVox'];
 }
 
-// Get all category options for dropdown
+// Search modes that take the text box as their only input
+export function isSearchMode(categoryId) {
+    const config = getCategoryConfig(categoryId);
+    return !!(config && config.customSearch);
+}
+
+// Category options for the dropdown, grouped. This is the single source of
+// truth for the <select> on index.html, which is rendered from it.
 export function getAllCategories() {
     return [
-        { group: 'Quick Options', options: [
-            { id: 'AllLibriVox', title: 'All LibriVox Audiobooks' },
+        { group: 'Browse', options: [
+            { id: 'AllLibriVox', title: 'All Audiobooks' },
             { id: 'Author_Search', title: 'Search by Author' },
             { id: 'Title_Search', title: 'Search by Title' },
-            { id: 'Custom', title: 'Custom Advanced Search' }
+            { id: 'Custom', title: 'Advanced Search' }
         ]},
         { group: 'Fiction Genres', options: [
             { id: 'ClassicLiterature', title: 'Classic Literature' },
@@ -223,7 +231,7 @@ export function getAllCategories() {
         { group: 'Poetry & Drama', options: [
             { id: 'Poetry', title: 'Poetry' },
             { id: 'Drama', title: 'Drama & Plays' },
-            { id: 'Shakespeare', title: 'William Shakespeare' }
+            { id: 'Shakespeare', title: 'Shakespeare' }
         ]},
         { group: "Children's Books", options: [
             { id: 'Childrens', title: "Children's Literature" },
@@ -242,11 +250,11 @@ export function getAllCategories() {
             { id: 'LFrankBaum', title: 'L. Frank Baum (Oz)' }
         ]},
         { group: 'By Language', options: [
-            { id: 'French', title: 'French Audiobooks' },
-            { id: 'German', title: 'German Audiobooks' },
-            { id: 'Spanish', title: 'Spanish Audiobooks' },
-            { id: 'Italian', title: 'Italian Audiobooks' },
-            { id: 'Russian', title: 'Russian Audiobooks' }
+            { id: 'French', title: 'French' },
+            { id: 'German', title: 'German' },
+            { id: 'Spanish', title: 'Spanish' },
+            { id: 'Italian', title: 'Italian' },
+            { id: 'Russian', title: 'Russian' }
         ]}
     ];
 }
