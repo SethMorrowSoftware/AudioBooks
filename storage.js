@@ -1,86 +1,173 @@
-// storage.js - Centralized storage management for LibriVox Audiobooks
+/**
+ * storage.js - Persistence for the LibriVox Audiobooks app.
+ *
+ * localStorage can throw (Safari private mode, storage disabled, quota),
+ * and this module is imported by both pages, so every access is guarded
+ * and falls back to an in-memory store instead of taking the app down.
+ */
 
-class StorageManager {
-    constructor() {
-        this.prefix = 'librivox_';
-        this.initStorage();
+const PREFIX = 'librivox_';
+const KEYS = {
+    recentlyViewed: PREFIX + 'recentlyViewed',
+    selectedCategory: PREFIX + 'selectedCategory',
+    progress: PREFIX + 'progress',
+    playerPrefs: PREFIX + 'playerPrefs'
+};
+
+const MAX_RECENT = 8;
+const MAX_PROGRESS_ENTRIES = 200;
+
+const memory = new Map();
+let backend; // undefined = not probed yet, null = unavailable
+
+function getBackend() {
+    if (backend !== undefined) return backend;
+    try {
+        const store = globalThis.localStorage;
+        if (!store) { backend = null; return backend; }
+        const probe = PREFIX + '__probe__';
+        store.setItem(probe, '1');
+        store.removeItem(probe);
+        backend = store;
+    } catch {
+        backend = null;
     }
+    return backend;
+}
 
-    initStorage() {
-        // Validate and initialize recently viewed audiobooks
-        try {
-            const raw = localStorage.getItem(this.prefix + 'recentlyViewed') || '[]';
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) throw new Error('Invalid format');
-        } catch {
-            console.error('Invalid recentlyViewed; resetting');
-            localStorage.removeItem(this.prefix + 'recentlyViewed');
-        }
-    }
+function readRaw(key) {
+    const store = getBackend();
+    try {
+        if (store) return store.getItem(key);
+    } catch { /* fall through to memory */ }
+    return memory.has(key) ? memory.get(key) : null;
+}
 
-    // Get recently viewed audiobooks
-    getRecentlyViewed() {
-        try {
-            const raw = localStorage.getItem(this.prefix + 'recentlyViewed') || '[]';
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }
-
-    // Update recently viewed audiobooks
-    updateRecentlyViewed(audiobook) {
-        if (!audiobook || !audiobook.identifier) {
-            console.error('Invalid audiobook data for recently viewed');
-            return;
-        }
-
-        let stored = this.getRecentlyViewed();
-
-        // Remove if already exists, then add to front
-        stored = stored.filter(s => s.identifier !== audiobook.identifier);
-        stored.unshift({
-            identifier: audiobook.identifier,
-            title: audiobook.title || 'Unknown Audiobook'
-        });
-
-        // Keep only last 5
-        if (stored.length > 5) stored.pop();
-
-        try {
-            localStorage.setItem(this.prefix + 'recentlyViewed', JSON.stringify(stored));
-        } catch (e) {
-            console.error('Error saving recentlyViewed:', e);
-        }
-
-        return stored;
-    }
-
-    // Get selected category
-    getSelectedCategory() {
-        return localStorage.getItem(this.prefix + 'selectedCategory') || 'AllLibriVox';
-    }
-
-    // Save selected category
-    setSelectedCategory(category) {
-        try {
-            localStorage.setItem(this.prefix + 'selectedCategory', category);
-        } catch (e) {
-            console.error('Error saving selected category:', e);
-        }
-    }
-
-    // Clear all storage
-    clearAll() {
-        const keys = Object.keys(localStorage);
-        keys.forEach(key => {
-            if (key.startsWith(this.prefix)) {
-                localStorage.removeItem(key);
-            }
-        });
+function writeRaw(key, value) {
+    memory.set(key, value);
+    const store = getBackend();
+    if (!store) return;
+    try {
+        store.setItem(key, value);
+    } catch (e) {
+        console.warn('Could not persist', key, e);
     }
 }
 
-// Export singleton instance
+function removeRaw(key) {
+    memory.delete(key);
+    const store = getBackend();
+    if (!store) return;
+    try { store.removeItem(key); } catch { /* ignore */ }
+}
+
+function readJSON(key, fallback) {
+    const raw = readRaw(key);
+    if (raw === null || raw === undefined) return fallback;
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed === null ? fallback : parsed;
+    } catch {
+        removeRaw(key);
+        return fallback;
+    }
+}
+
+function writeJSON(key, value) {
+    writeRaw(key, JSON.stringify(value));
+}
+
+function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+class StorageManager {
+    /** @returns {Array<{identifier: string, title: string, author: string, updatedAt: number}>} */
+    getRecentlyViewed() {
+        const list = readJSON(KEYS.recentlyViewed, []);
+        if (!Array.isArray(list)) return [];
+        return list.filter(entry => isPlainObject(entry) && typeof entry.identifier === 'string');
+    }
+
+    updateRecentlyViewed(audiobook) {
+        if (!audiobook || typeof audiobook.identifier !== 'string') return this.getRecentlyViewed();
+        const entry = {
+            identifier: audiobook.identifier,
+            title: typeof audiobook.title === 'string' && audiobook.title ? audiobook.title : 'Unknown Audiobook',
+            author: typeof audiobook.author === 'string' ? audiobook.author : '',
+            updatedAt: Date.now()
+        };
+        const list = this.getRecentlyViewed().filter(item => item.identifier !== entry.identifier);
+        list.unshift(entry);
+        writeJSON(KEYS.recentlyViewed, list.slice(0, MAX_RECENT));
+        return list;
+    }
+
+    getSelectedCategory() {
+        const value = readRaw(KEYS.selectedCategory);
+        return typeof value === 'string' && value ? value : 'AllLibriVox';
+    }
+
+    setSelectedCategory(category) {
+        if (typeof category === 'string') writeRaw(KEYS.selectedCategory, category);
+    }
+
+    /** All saved listening positions keyed by identifier. */
+    getAllProgress() {
+        const map = readJSON(KEYS.progress, {});
+        return isPlainObject(map) ? map : {};
+    }
+
+    /** @returns {{track: number, time: number, chapters: number, updatedAt: number} | null} */
+    getProgress(identifier) {
+        const entry = this.getAllProgress()[identifier];
+        if (!isPlainObject(entry)) return null;
+        const track = Number(entry.track);
+        const time = Number(entry.time);
+        if (!Number.isInteger(track) || track < 0 || !Number.isFinite(time) || time < 0) return null;
+        return { track, time, chapters: Number(entry.chapters) || 0, updatedAt: Number(entry.updatedAt) || 0 };
+    }
+
+    setProgress(identifier, { track, time, chapters }) {
+        if (typeof identifier !== 'string' || !identifier) return;
+        const map = this.getAllProgress();
+        map[identifier] = {
+            track: Math.max(0, Math.floor(Number(track) || 0)),
+            time: Math.max(0, Number(time) || 0),
+            chapters: Math.max(0, Math.floor(Number(chapters) || 0)),
+            updatedAt: Date.now()
+        };
+        const entries = Object.entries(map).sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0));
+        writeJSON(KEYS.progress, Object.fromEntries(entries.slice(0, MAX_PROGRESS_ENTRIES)));
+    }
+
+    clearProgress(identifier) {
+        const map = this.getAllProgress();
+        if (identifier in map) {
+            delete map[identifier];
+            writeJSON(KEYS.progress, map);
+        }
+    }
+
+    /** @returns {{playbackRate: number, volume: number}} */
+    getPlayerPrefs() {
+        const prefs = readJSON(KEYS.playerPrefs, {});
+        const rate = Number(prefs.playbackRate);
+        const volume = Number(prefs.volume);
+        return {
+            playbackRate: Number.isFinite(rate) && rate >= 0.5 && rate <= 3 ? rate : 1,
+            volume: Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 1
+        };
+    }
+
+    setPlayerPrefs(partial) {
+        if (!isPlainObject(partial)) return;
+        writeJSON(KEYS.playerPrefs, { ...this.getPlayerPrefs(), ...partial });
+    }
+
+    clearAll() {
+        Object.values(KEYS).forEach(removeRaw);
+    }
+}
+
 export const storage = new StorageManager();
